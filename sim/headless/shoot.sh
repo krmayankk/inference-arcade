@@ -15,7 +15,7 @@ grab() { # name query window-size
     --virtual-time-budget=13000 --dump-dom "http://127.0.0.1:8765/game/?bot=1&trace=1&grab=11000&$2" 2>/dev/null \
     | grep -o 'id="grab">data:image/png;base64,[^<]*' | sed 's/.*base64,//' | base64 -d > "$OUT/tw-$1.png" || true
 }
-grab l1 "lvl=0" 1400,900 &
+grab l1 "lvl=0&shoot=1" 1400,900 &
 grab l3x "lvl=2&x=1" 1400,900 &
 grab phone "lvl=2" 420,860 &
 wait

@@ -97,7 +97,7 @@
 <div id="stage"><div id="paused" hidden>PAUSED</div></div>
 <div class="bottom">
   <div id="levers"></div>
-  <span class="keys">WASD move · Space catch/fire · 1 / 2 fire to machine · Z zap · + − rails · C batch lever · P pause · X labels</span>
+  <span class="keys">aim with the mouse · click / Space shoot · click a capsule to load it · 1 / 2 auto-shoot to machine · Z zap · + − rails · C batch lever · P pause · X labels</span>
 </div>
 <div id="legend"></div>
 <p class="foot">The L4 machine turns at the speed measured on <a href="https://github.com/krmayankk/gpu-inference" target="_blank" rel="noopener">gpu-inference</a> (Qwen2.5-Coder-7B FP8 on one NVIDIA L4: 28.8 tokens/s single-stream). Part of <a href="../">Inference Arcade</a>.</p>
@@ -105,8 +105,8 @@
 <div class="overlay" id="overlay">
   <div class="modal" id="m-menu">
     <h2>Token<span>works</span></h2>
-    <p>Every AI reply is cooked by a GPU one token at a time. You pilot the dispatcher: catch incoming requests and fire them into the machines' rails before their patience runs out.</p>
-    <p class="sub">Click a capsule, then click a machine. Press X any time for the engineering labels.</p>
+    <p>Every AI reply is cooked by a GPU one token at a time. You run the dispatcher cannon: shoot incoming requests onto the machines' rails before their patience runs out.</p>
+    <p class="sub">The most urgent capsule loads itself. Point at a track on a machine and click to shoot. Press X any time for the engineering labels.</p>
     <div class="levels" id="levels"></div>
     <div class="actions"><button class="btn" id="resume">Resume</button></div>
   </div>
@@ -129,11 +129,11 @@
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pixi.js/7.4.2/pixi.min.js"></script>
-<script src="sim.js"></script>
+<script src="sim.js?v=4"></script>
 <script>
   // ?bot=1 lets a bot play (demo mode); also the headless screenshot driver used by sim/headless.
   if (new URLSearchParams(location.search).has('bot')) document.write('<script src="../sim/headless/bot.js"><\/script>');
 </script>
-<script src="main.js"></script>
+<script src="main.js?v=4"></script>
 </body>
 </html>

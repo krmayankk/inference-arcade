@@ -25,7 +25,7 @@
   const LEVELS = [
     {
       id: 1, name: 'First shift',
-      brief: 'Capsules are requests. Catch one with the ship and fire it into a rail on the machine. ' +
+      brief: 'Capsules are requests. The most urgent one loads into your cannon: point at a track on the machine and shoot it onto a rail. ' +
              'Every turn of the wheel stamps one token onto every occupied rail. Two rails will not keep up: add rails and watch how little the wheel slows.',
       goalText: 'Deliver 25 replies before the clock runs out. 5 timeouts and the shift is over.',
       learn: 'Adding rails barely slows the wheel. One turn streams the whole model once, whether 1 or 8 rails ride it. That is batching, and it is why one GPU can serve many people.',
@@ -49,7 +49,7 @@
     },
     {
       id: 3, name: 'Two machines',
-      brief: 'Two machines, three colours. Capsules with a long ribbon carry a big shared prompt: the first of its colour makes the reader grind, ' +
+      brief: 'Two machines, three colours. The urgent capsule loads itself, but you can click any capsule in the lane to load it instead. Capsules with a long ribbon carry a big shared prompt: the first of its colour makes the reader grind, ' +
              'the next ones of the same colour on the same machine are nearly free. Route by colour, and spread the load. A rush is coming.',
       goalText: 'Deliver 50 replies with at least 75% on time. 8 timeouts and the shift is over.',
       learn: 'Routing is a lever. Sending requests that share a prefix to the same GPU hits its prefix cache (no re-read, less memory). That is prefix-aware routing, the heart of modern inference routers.',

@@ -1,9 +1,9 @@
-// Bot driver for game/index.html?bot=1[&lvl=N][&x=1][&probe=ms]. Starts a level, lets a simple
+// Bot driver for game/index.html?bot=1[&lvl=N][&x=1][&shoot=1][&probe=ms]. Starts a level, lets a simple
 // dispatcher play, and (for headless screenshots, where requestAnimationFrame is throttled) drives
 // the PixiJS ticker itself. See sim/headless/shoot.sh.
 (function () {
   const q = new URLSearchParams(location.search);
-  const lvl = +(q.get('lvl') || 0), xr = q.get('x') === '1';
+  const lvl = +(q.get('lvl') || 0), xr = q.get('x') === '1', shoot = q.has('shoot');
   window.__err = null;
   if (q.has('trace')) PIXI.settings.RENDER_OPTIONS.preserveDrawingBuffer = true;
   window.onerror = (m, src, line) => { window.__err = window.__err || (m + ' @' + line); };
@@ -17,6 +17,7 @@
       const free = m => m.rails - m.run.length - m.pending.length;
       for (const r of S.queue) if (r.phase === 'lane' && S.t - r.t0 > 1.2 && Math.random() < 0.5) {
         const m = S.machines.find(x => r.shared && Sim.isWarm(S, x, r.family) && free(x) > 0) || S.machines.slice().sort((a, b) => free(b) - free(a))[0];
+        if (shoot) { TW.shoot(m.id); break; }       // &shoot=1: play through the cannon (aim + flight + landing) instead of placing directly
         Sim.place(S, r.id, m.id);
       }
     }, 250);
@@ -29,7 +30,7 @@
       const app = TW.app, W = app.screen.width, H = app.screen.height, n = S.machines.length;
       const mH = Math.min(460, (H - 24 - 12 * (n - 1)) / n), mY = (H - (n * mH + (n - 1) * 12)) / 2;
       // sample the top of the first machine's wheel ring (bright when drawn; the floor grid never lands there)
-      const wr = Math.min(mH * 0.28, 58), x = Math.round(W * 0.47 + 18 + wr), y = Math.round(mY + mH / 2 + 6 - wr);
+      const wr = Math.min(mH * 0.28, 58, (W * 0.5 - 12) * 0.14), x = Math.round(W * 0.50 + 18 + wr), y = Math.round(mY + mH / 2 + 6 - wr);
       c2.drawImage(app.view, x * app.renderer.resolution, y * app.renderer.resolution, 2, 2, 0, 0, 2, 2);
       const d = c2.getImageData(0, 0, 1, 1).data;
       const gl = app.renderer.gl, ge = gl ? gl.getError() : -1;

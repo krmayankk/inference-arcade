@@ -7,9 +7,15 @@ Play: https://krmayankk.github.io/inference-arcade/game/ · Demo mode (a bot pla
 - **The world.** Requests arrive as capsules on the left and drift toward a red cliff over their
   patience (5–6 s). Each machine is one GPU: a weights wheel (one turn = one decode step),
   rails (batch slots), a tank (KV cache), and an output chute where tokens fly out as sparks.
-- **The verb.** You pilot the dispatcher ship. Click a capsule to catch it (the ship flies there if
-  it's out of reach), click a machine to fire it into a rail. Right-click or Z zaps a capsule
-  (sheds it: no timeout, no coins, combo halves). Keyboard: WASD, Space, 1/2, +/−, C, P, X.
+- **The verb (revised after the first playtest).** A cannon sits on the cliff at the end of the
+  lane. The most urgent capsule loads itself; point at a track on a machine and click (or Space) to
+  shoot it onto that rail. Click another capsule in the lane to load it instead (that is the routing
+  choice in level 3). A full or locked track bounces the shot back; missing the machine returns it
+  to the lane. Right-click or Z zaps the loaded capsule (sheds it: no timeout, no coins, combo
+  halves). Keys: W/S aim, Space shoot, 1/2 auto-shoot to a machine, +/−, C, P, X.
+- **Rails are tracks.** Each rail is a horizontal track with a gate on the left. A seated request
+  rides along it as its reply is written (the trail behind it is the reply so far) and tokens spark
+  off the right end on every turn of the wheel. Open gate = free rail, red ✕ = batch-locked.
 - **Levers.** Rails (`max_num_seqs`) per machine; batch lock (static vs continuous batching),
   which level 2 unlocks after 8 s or 3 bounces.
 - **Feedback.** Token sparks per step, coin pops and multipliers on delivery, bounce labels
@@ -42,7 +48,16 @@ Play: https://krmayankk.github.io/inference-arcade/game/ · Demo mode (a bot pla
 - Narrow phones: the lane is cramped; capsules can overlap. Fine for a first playtest, not final.
 - Level 3's 3.2 s cold stall freezes every rail on that machine (no chunked prefill yet; that is
   level 5's lever in Phase 2).
-- No sound yet (Phase 2). No auto-dispatcher yet (the `?bot=1` demo shows what it will do).
+- No sound yet (Phase 2). No auto-dispatcher yet (the `?bot=1` demo shows what it will do;
+  `?bot=1&shoot=1` plays through the cannon so the flight and landing code gets exercised).
+- The first playtest (2026-10-31) found: catch-then-click was confusing, "rail" had no clear picture,
+  and the game paused or froze by itself. The pause came from a focused HUD button taking Space as
+  a click, Escape toggling pause, and the Levels menu hiding its Resume button. The freeze was a
+  crash: the pooled pop-up texts were destroyed whenever the machines were rebuilt (every replay and
+  every window resize), and the next pop-up threw inside PixiJS, which then never requested another
+  frame. All fixed; the frame loop now also catches errors and keeps going. Script tags carry a
+  `?v=` so a reload cannot keep serving an old renderer from the browser cache (that is how the
+  first fix looked like it had not landed).
 - Headless Chrome's `--screenshot` sometimes composited blank machine panels while the canvas
   itself had them (confirmed by reading the canvas back). `sim/headless/shoot.sh` therefore captures
   the canvas via `toDataURL`. Along the way the renderer gained two robustness changes worth keeping:
