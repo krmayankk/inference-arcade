@@ -188,6 +188,8 @@ and a short demo note in `docs/`. Session estimates are working sessions, not da
 
 ### Phase 1 — Arcade core: the fun test (2–3 sessions)
 
+**Status (2026-10-31): built, awaiting the playtest.** See `docs/phase-1.md`. Levels 1–3 + endless, bots pass; level order differs from the table above (the two-machine routing level is level 3 because it is the fun test for the verb; the "sweet spot" level moves to Phase 2).
+
 Build the smallest version that answers "is catch-and-fire fun?"
 
 - `game/` with the renderer on **PixiJS** (WebGL, thousands of token particles, from cdnjs),
