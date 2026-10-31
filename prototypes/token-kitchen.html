@@ -1,0 +1,1236 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Token Kitchen</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<meta name="description" content="A cooking game about how GPUs serve AI chatbots. Flip on X-ray to see the real LLM inference machinery.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@500;700;800&family=Nunito:wght@500;700;800&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: a kitchen floor (canvas) with a coach strip above it and a "see inside" panel on the right.
+   X-ray mode swaps the warm diner palette for a cool schematic one. */
+:root {
+  --bg: #fff6ea;
+  --floor: #fde9cf;
+  --panel: #ffffff;
+  --panel-2: #fff1dd;
+  --line: #ecd2ae;
+  --fg: #3b2a1d;
+  --muted: #8a6f58;
+  --accent: #ff7a45;    /* flame */
+  --gold: #f5b82e;      /* coins */
+  --good: #2fb36d;
+  --bad: #e5484d;
+  --cool: #3a8dde;
+  --display: "Baloo 2", "Trebuchet MS", system-ui, sans-serif;
+  --body: "Nunito", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  color-scheme: light;
+}
+:root[data-xray="on"] {
+  --bg: #0c1424;
+  --floor: #0f1b30;
+  --panel: #13213a;
+  --panel-2: #182a48;
+  --line: #27406a;
+  --fg: #e3ecff;
+  --muted: #8ea3c9;
+  --accent: #ff9a5c;
+  --gold: #ffd166;
+  --good: #4ade80;
+  --bad: #ff6b6b;
+  --cool: #6cc4ff;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body { background: var(--bg); color: var(--fg); }
+body {
+  margin: 0;
+  font: 15px/1.45 var(--body);
+  padding-left: max(14px, env(safe-area-inset-left, 0px));
+  padding-right: max(14px, env(safe-area-inset-right, 0px));
+  padding-block: 12px 28px;
+  transition: background .3s, color .3s;
+}
+.app { max-width: 1320px; margin: 0 auto; display: flex; flex-direction: column; gap: 12px; }
+button { font-family: inherit; }
+
+/* Header */
+.top { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 18px; }
+.brand { display: flex; align-items: baseline; gap: 10px; margin-right: auto; flex-wrap: wrap; }
+.brand h1 { margin: 0; font: 800 30px/1 var(--display); letter-spacing: 0.01em; }
+.brand h1 span { color: var(--accent); }
+.lvl-name { font: 700 15px var(--display); color: var(--muted); }
+.stats { display: flex; flex-wrap: wrap; gap: 8px; }
+.stat { background: var(--panel); border: 2px solid var(--line); border-radius: 12px; padding: 4px 12px; display: flex; flex-direction: column; min-width: 86px; }
+.stat small { font: 800 10px var(--body); text-transform: uppercase; letter-spacing: 0.1em; color: var(--muted); }
+.stat b { font: 800 20px/1.15 var(--display); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.stat b.bad { color: var(--bad); }
+.goalbar { height: 5px; border-radius: 3px; background: var(--panel-2); overflow: hidden; margin-top: 2px; }
+.goalbar i { display: block; height: 100%; width: 0; background: var(--good); transition: width .3s; }
+.controls { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+
+.btn {
+  font: 700 14px var(--display); letter-spacing: 0.02em;
+  background: var(--panel); color: var(--fg);
+  border: 2px solid var(--line); border-radius: 10px;
+  padding: 5px 12px; cursor: pointer; transition: border-color .15s, transform .1s, background .15s;
+}
+.btn:hover:not(:disabled) { border-color: var(--accent); }
+.btn:active:not(:disabled) { transform: translateY(1px); }
+.btn:focus-visible, input:focus-visible { outline: 3px solid var(--cool); outline-offset: 2px; }
+.btn[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: #fff; }
+.btn:disabled { opacity: .4; cursor: not-allowed; }
+.btn.big { font-size: 18px; padding: 10px 22px; background: var(--accent); color: #fff; border-color: var(--accent); }
+.btn.big:hover { border-color: var(--fg); }
+.btn.xray { border-style: dashed; }
+:root[data-xray="on"] .btn.xray { background: var(--cool); border-color: var(--cool); color: #0c1424; border-style: solid; }
+
+/* Coach */
+.coach { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); gap: 10px 18px; align-items: center; background: var(--panel); border: 2px solid var(--line); border-left: 6px solid var(--cool); border-radius: 14px; padding: 10px 14px; }
+@media (max-width: 760px) { .coach { grid-template-columns: minmax(0, 1fr); } }
+.coach.warn { border-left-color: var(--gold); }
+.coach.alert { border-left-color: var(--bad); }
+.coach.win { border-left-color: var(--good); }
+.coach-tag { font: 800 11px var(--body); text-transform: uppercase; letter-spacing: 0.1em; color: var(--cool); }
+.coach.warn .coach-tag { color: #b8860b; }
+:root[data-xray="on"] .coach.warn .coach-tag { color: var(--gold); }
+.coach.alert .coach-tag { color: var(--bad); }
+.coach p { margin: 2px 0 0; font-size: 16px; font-weight: 700; line-height: 1.38; max-width: 66ch; }
+.meter { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.m-row { display: grid; grid-template-columns: 76px minmax(0, 1fr) 96px; align-items: center; gap: 8px; font: 800 11px var(--body); text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
+.m-row output { font: 600 12px var(--mono); color: var(--fg); text-align: right; text-transform: none; letter-spacing: 0; white-space: nowrap; }
+.m-bar { position: relative; height: 14px; border-radius: 7px; background: var(--panel-2); overflow: hidden; }
+.m-bar i { position: absolute; left: 0; top: 0; bottom: 0; width: 0; border-radius: 7px; transition: width .25s, left .25s; }
+#m-dem { background: var(--accent); }
+#m-cap { background: var(--good); }
+#m-cap.short { background: var(--bad); }
+#m-boot { background: var(--good); opacity: .35; }
+
+/* Main */
+.grid { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 12px; align-items: start; }
+@media (max-width: 980px) { .grid { grid-template-columns: minmax(0, 1fr); } }
+.floor { position: relative; border: 2px solid var(--line); border-radius: 16px; overflow: hidden; background: var(--floor); }
+#scene { display: block; width: 100%; touch-action: manipulation; cursor: pointer; }
+.banner { position: absolute; top: 10px; left: 50%; transform: translateX(-50%); max-width: calc(100% - 24px); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font: 800 14px var(--display); padding: 4px 14px; border-radius: 999px; background: var(--bad); color: #fff; }
+
+.side { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.card { background: var(--panel); border: 2px solid var(--line); border-radius: 14px; padding: 12px; display: flex; flex-direction: column; gap: 10px; }
+.card h2 { margin: 0; font: 800 17px/1.1 var(--display); display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.card h2 small { font: 600 11px var(--mono); color: var(--muted); }
+.hint { margin: 0; font-size: 13px; color: var(--muted); }
+.row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.row label, .row .lbl { font-weight: 800; }
+.stepper { display: flex; align-items: center; gap: 6px; }
+.stepper output { font: 800 20px var(--display); min-width: 40px; text-align: center; font-variant-numeric: tabular-nums; }
+.stepper .btn { width: 38px; padding: 4px 0; font-size: 20px; line-height: 1; }
+
+/* step-time bar */
+.stepbar { display: flex; height: 22px; border-radius: 6px; overflow: hidden; background: var(--panel-2); }
+.stepbar i { display: block; height: 100%; min-width: 0; transition: width .15s; }
+.sb-base { background: #9aa7b8; }
+.sb-seq { background: var(--accent); }
+.sb-pre { background: var(--cool); }
+.legend { display: flex; flex-wrap: wrap; gap: 4px 12px; font: 600 11px var(--mono); color: var(--muted); }
+.legend span::before { content: ""; display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 5px; vertical-align: -1px; background: var(--c); }
+.kv { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+.kv div { background: var(--panel-2); border-radius: 8px; padding: 5px 8px; display: flex; flex-direction: column; min-width: 0; }
+.kv small { font: 800 10px var(--body); text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); }
+.kv b { font: 600 14px var(--mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* the live loop */
+.loop { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 3px; counter-reset: l; }
+.loop li { counter-increment: l; display: grid; grid-template-columns: 18px minmax(0, 1fr) auto; gap: 6px; align-items: baseline; padding: 4px 6px; border-radius: 6px; font-size: 13px; transition: background .12s; }
+.loop li::before { content: counter(l); font: 600 11px var(--mono); color: var(--muted); }
+.loop li code { font: 12px var(--mono); }
+.loop li em { font: normal 600 11px var(--mono); color: var(--muted); white-space: nowrap; }
+.loop li.hot { background: color-mix(in srgb, var(--accent) 22%, transparent); }
+.loop li.hot em { color: var(--fg); }
+:root:not([data-xray="on"]) .loop .x { display: none; }
+:root[data-xray="on"] .loop .k { display: none; }
+
+.toggle { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.toggle div { display: flex; flex-direction: column; min-width: 0; }
+.toggle div span { font-size: 12px; color: var(--muted); }
+.switch { position: relative; width: 46px; height: 26px; flex: none; }
+.switch input { position: absolute; inset: 0; opacity: 0; margin: 0; cursor: pointer; }
+.switch i { position: absolute; inset: 0; border-radius: 13px; background: var(--panel-2); border: 2px solid var(--line); pointer-events: none; transition: background .15s; }
+.switch i::after { content: ""; position: absolute; top: 2px; left: 2px; width: 18px; height: 18px; border-radius: 50%; background: var(--muted); transition: transform .15s; }
+.switch input:checked + i { background: var(--good); border-color: var(--good); }
+.switch input:checked + i::after { transform: translateX(20px); background: #fff; }
+.switch input:focus-visible + i { outline: 3px solid var(--cool); outline-offset: 2px; }
+.build { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+.build .btn { display: flex; flex-direction: column; align-items: center; padding: 6px 4px; gap: 0; }
+.build .btn small { font: 600 11px var(--mono); color: var(--muted); }
+.build .btn[disabled] small { color: inherit; }
+
+.pulse { animation: pulse 1.1s ease-in-out infinite; }
+@keyframes pulse { 0%, 100% { box-shadow: 0 0 0 0 transparent; } 50% { box-shadow: 0 0 0 5px var(--gold); } }
+
+/* Overlays */
+.overlay { position: fixed; inset: 0; z-index: 30; display: grid; place-items: center; padding: 16px; background: color-mix(in srgb, var(--bg) 70%, transparent); backdrop-filter: blur(4px); }
+.modal { width: min(640px, 100%); max-height: 100%; overflow: auto; background: var(--panel); border: 2px solid var(--line); border-radius: 20px; padding: 24px; display: flex; flex-direction: column; gap: 14px; box-shadow: 0 20px 60px rgba(0,0,0,.18); }
+.modal h2 { margin: 0; font: 800 34px/1.05 var(--display); text-wrap: balance; }
+.modal h2 span { color: var(--accent); }
+.modal p { margin: 0; max-width: 62ch; }
+.modal .sub { color: var(--muted); }
+.levels { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+@media (max-width: 560px) { .levels { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.levels .btn { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 10px 12px; text-align: left; min-height: 86px; }
+.levels .btn small { font: 700 12px var(--body); color: var(--muted); }
+.levels .btn .stars { color: var(--gold); font-size: 16px; letter-spacing: 2px; }
+.levels .btn:disabled .stars { color: var(--muted); }
+.learn { display: grid; gap: 8px; }
+.learn div { background: var(--panel-2); border-radius: 12px; padding: 10px 12px; }
+.learn small { font: 800 11px var(--body); text-transform: uppercase; letter-spacing: 0.1em; color: var(--muted); display: block; margin-bottom: 2px; }
+.bigstars { font-size: 44px; letter-spacing: 6px; color: var(--gold); line-height: 1; }
+.bigstars .off { color: var(--line); }
+.res { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
+@media (max-width: 520px) { .res { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.res div { background: var(--panel-2); border-radius: 10px; padding: 6px 10px; display: flex; flex-direction: column; }
+.res small { font: 800 10px var(--body); text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); }
+.res b { font: 800 18px var(--display); }
+.actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.foot { text-align: center; color: var(--muted); font-size: 13px; }
+.foot a { color: var(--cool); }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } .pulse { animation: none; box-shadow: 0 0 0 4px var(--gold); } }
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="top">
+    <div class="brand">
+      <h1>Token <span>Kitchen</span></h1>
+      <span class="lvl-name" id="lvl-name">Level 1 · First customers</span>
+    </div>
+    <div class="stats">
+      <div class="stat"><small id="goal-label">Goal</small><b id="goal-val">0 / 25</b><div class="goalbar"><i id="goal-bar"></i></div></div>
+      <div class="stat"><small>Coins</small><b id="coins">0</b></div>
+      <div class="stat"><small>Happy</small><b id="happy">100%</b></div>
+      <div class="stat"><small>Time</small><b id="time">2:00</b></div>
+    </div>
+    <div class="controls">
+      <button class="btn" data-speed="0">Pause</button>
+      <button class="btn" data-speed="0.05" title="Slow motion: watch every tick">Slow-mo</button>
+      <button class="btn" data-speed="1">1×</button>
+      <button class="btn" data-speed="3">3×</button>
+      <button class="btn xray" id="xray-btn" aria-pressed="false" title="Show the real GPU machinery">X-ray</button>
+      <button class="btn" id="sound-btn" aria-pressed="false">Sound</button>
+      <button class="btn" id="menu-btn">Levels</button>
+    </div>
+  </header>
+
+  <div class="coach" id="coach">
+    <div>
+      <div class="coach-tag" id="coach-tag">Coach</div>
+      <p id="coach-text" aria-live="polite">Pick a level to start.</p>
+    </div>
+    <div class="meter" aria-label="Demand versus capacity">
+      <div class="m-row"><span id="m-dem-l">Customers</span><div class="m-bar"><i id="m-dem"></i></div><output id="m-dem-v">0/s</output></div>
+      <div class="m-row"><span id="m-cap-l">Can serve</span><div class="m-bar"><i id="m-cap"></i><i id="m-boot"></i></div><output id="m-cap-v">0/s</output></div>
+    </div>
+  </div>
+
+  <div class="grid">
+    <div class="floor">
+      <canvas id="scene" aria-label="The kitchen floor: customers waiting in line, kitchens cooking, coins flying"></canvas>
+      <div class="banner" id="banner" hidden></div>
+    </div>
+
+    <aside class="side">
+      <div class="card" id="inspect">
+        <h2><span id="i-name">Snack Kitchen</span><small id="i-gpu">NVIDIA L4 · 24 GB</small></h2>
+        <div class="row">
+          <span class="lbl" id="i-burners-l">Burners</span>
+          <div class="stepper">
+            <button class="btn" id="b-minus" aria-label="Fewer burners">−</button>
+            <output id="i-burners">1</output>
+            <button class="btn" id="b-plus" aria-label="More burners">+</button>
+          </div>
+        </div>
+        <div>
+          <div class="row" style="margin-bottom:4px"><span class="lbl" id="i-tick-l">One tick</span><span style="font:600 12px var(--mono)" id="i-tick">0 ms</span></div>
+          <div class="stepbar"><i class="sb-base" id="sb-base"></i><i class="sb-seq" id="sb-seq"></i><i class="sb-pre" id="sb-pre"></i></div>
+          <div class="legend" id="legend"></div>
+        </div>
+        <div class="kv">
+          <div><small id="k1l">Cooking now</small><b id="k1">0</b></div>
+          <div><small id="k2l">Bites / second</small><b id="k2">0</b></div>
+          <div><small id="k3l">Fridge used</small><b id="k3">0%</b></div>
+          <div><small id="k4l">Bite speed</small><b id="k4">-</b></div>
+        </div>
+        <div>
+          <div class="row" style="margin-bottom:4px"><span class="lbl" id="loop-l">What the kitchen does every tick</span></div>
+          <ol class="loop" id="loop">
+            <li data-p="admit"><span><span class="k">Seat customers while a burner is free and the fridge has room</span><code class="x">admit(): while waiting and len(running) &lt; max_num_seqs and kv.fits(req)</code></span><em id="lp-admit"></em></li>
+            <li data-p="prefill"><span><span class="k">Read the new orders (long orders take longer)</span><code class="x">prefill(new): compute KV for every prompt token → first token</code></span><em id="lp-prefill"></em></li>
+            <li data-p="decode"><span><span class="k">Every lit burner adds one bite, all at once</span><code class="x">decode(running): ONE forward pass → one token per sequence</code></span><em id="lp-decode"></em></li>
+            <li data-p="spec" id="li-spec"><span><span class="k">The apprentice guesses 4 bites ahead; the chef checks them and keeps the right ones</span><code class="x">speculate: draft proposes k=4; target verifies 5 positions in the same pass</code></span><em id="lp-spec"></em></li>
+            <li data-p="finish"><span><span class="k">Finished plates go out and customers pay</span><code class="x">for seq in finished: free(seq.kv_blocks); stream_done()</code></span><em id="lp-finish"></em></li>
+            <li data-p="preempt"><span><span class="k">Fridge overflowing? Bump the newest customer back to the line</span><code class="x">if kv.out_of_blocks(): preempt(newest) → requeue, recompute later</code></span><em id="lp-preempt"></em></li>
+          </ol>
+        </div>
+        <p class="hint" id="i-why"></p>
+        <div class="row"><button class="btn" id="close-k">Close this kitchen</button><span class="hint" id="i-hint">Click a kitchen to look inside</span></div>
+      </div>
+
+      <div class="card" id="rules" hidden>
+        <h2><span id="rules-title">Kitchen rules</span></h2>
+        <label class="toggle" id="tg-seat"><div><b id="t-seat-n">Seat anytime</b><span id="t-seat-d">New customers sit as soon as any burner frees up</span></div><span class="switch"><input type="checkbox" id="t-seat"><i></i></span></label>
+        <label class="toggle" id="tg-fp8"><div><b id="t-fp8-n">Compact fridge</b><span id="t-fp8-d">Fits 2× more food, food tastes a tiny bit worse</span></div><span class="switch"><input type="checkbox" id="t-fp8"><i></i></span></label>
+        <label class="toggle" id="tg-spec"><div><b id="t-spec-n">Apprentice chef</b><span id="t-spec-d">Guesses the next bites so the chef checks several per tick. Great when quiet, slows a busy kitchen</span></div><span class="switch"><input type="checkbox" id="t-spec"><i></i></span></label>
+        <label class="toggle" id="tg-prefix"><div><b id="t-prefix-n">Recipe book</b><span id="t-prefix-d">Read the shared part of big orders once and reuse it</span></div><span class="switch"><input type="checkbox" id="t-prefix"><i></i></span></label>
+      </div>
+
+      <div class="card" id="buildcard" hidden>
+        <h2><span id="build-title">Open a kitchen</span><small id="build-lots">0 / 6 lots</small></h2>
+        <div class="build" id="build"></div>
+        <p class="hint" id="build-hint">New kitchens take a few seconds to open, and you pay rent from the moment you click.</p>
+      </div>
+    </aside>
+  </div>
+  <p class="foot" id="foot">The L4 kitchen runs on numbers measured on a real cluster: <a href="https://github.com/krmayankk/gpu-inference" target="_blank" rel="noopener">gpu-inference</a> serving Qwen2.5-Coder-7B on an NVIDIA L4.</p>
+</div>
+
+<div class="overlay" id="overlay">
+  <div class="modal" id="m-menu">
+    <h2>Token <span>Kitchen</span></h2>
+    <p>Every time you chat with an AI, a GPU somewhere cooks your reply one word at a time. Run the kitchen: keep customers fed, fast, and don't go broke.</p>
+    <p class="sub">Flip <b>X-ray</b> at any time to see the real machinery: GPUs, batching, the KV cache, and the scheduler loop.</p>
+    <div class="levels" id="levels"></div>
+  </div>
+  <div class="modal" id="m-intro" hidden>
+    <p class="sub" id="intro-num">Level 1</p>
+    <h2 id="intro-title">First customers</h2>
+    <p id="intro-text"></p>
+    <div class="learn"><div><small>Goal</small><span id="intro-goal"></span></div></div>
+    <div class="actions"><button class="btn big" id="go">Open the kitchen</button><button class="btn" id="intro-back">Levels</button></div>
+  </div>
+  <div class="modal" id="m-end" hidden>
+    <p class="sub" id="end-sub">Level complete</p>
+    <h2 id="end-title">Delicious!</h2>
+    <div class="bigstars" id="end-stars"></div>
+    <div class="res" id="end-res"></div>
+    <div class="learn">
+      <div><small>What you learned</small><span id="end-kid"></span></div>
+      <div><small>The real machinery</small><span id="end-xray"></span></div>
+    </div>
+    <div class="actions"><button class="btn big" id="end-next">Next level</button><button class="btn" id="end-retry">Try again</button><button class="btn" id="end-menu">Levels</button></div>
+  </div>
+</div>
+
+<script>
+// ---- SIM START ----
+// One "kitchen" is one GPU serving Qwen2.5-Coder-7B. Decode step time = base + per * running_seqs (+ prefill).
+// base ≈ weight bytes / memory bandwidth: L4 is MEASURED (28.8 tok/s single stream on the gpu-inference cluster);
+// A100/H100 are derived from bandwidth ratios. KV tokens = (VRAM * 0.90 - weights - overhead) / 56 KB per token
+// (Qwen2.5-7B: 28 layers × 4 KV heads × 128 dims × 2 (K,V) × 2 bytes).
+const BLOCK = 16, SHARED_PREFIX = 6000;
+const TYPES = {
+  L4:   { kid: 'Snack Kitchen', gpu: 'NVIDIA L4 · 24 GB',   usd: 0.98, base: 0.0347, per: 0.00040, prefill: 8500,  kvTokens: 210000,  boot: 12, weights: '8 GB FP8 at 300 GB/s', measured: true },
+  A100: { kid: 'Diner',         gpu: 'NVIDIA A100 · 80 GB', usd: 4.10, base: 0.0100, per: 0.00008, prefill: 11000, kvTokens: 1100000, boot: 15, weights: '15 GB BF16 at 2.0 TB/s' },
+  H100: { kid: 'Mega Kitchen',  gpu: 'NVIDIA H100 · 80 GB', usd: 6.90, base: 0.0050, per: 0.00004, prefill: 35000, kvTokens: 1100000, boot: 15, weights: '8 GB FP8 at 3.35 TB/s' },
+};
+const COIN_PER_TOKEN = 0.02, RENT_PER_USD_H = 6;
+const prefixBlocks = Math.ceil(SHARED_PREFIX / BLOCK);
+
+const LEVELS = [
+  { id: 1, name: 'First customers',
+    intro: { kid: 'Your first kitchen is open! Customers order food, and every tick the stove adds one bite to the plate on each lit burner. You only have 1 burner lit, so the line will grow fast. Press + to light more burners.',
+             xray: 'One NVIDIA L4 serving Qwen2.5-Coder-7B. A burner is one sequence slot (vLLM max_num_seqs). With 1 slot the GPU decodes one request at a time and the queue explodes. Raise it and watch throughput climb while the step time barely moves.' },
+    goalText: 'Serve 25 customers before 2:00. If more than 8 give up, you lose.',
+    learn: { kid: 'More burners means more customers fed at once, and each tick takes barely any longer. That is the big trick behind every AI chatbot.',
+             xray: 'Decode is memory-bandwidth bound: every step streams all 8 GB of weights once, whether it serves 1 sequence or 50. Batching N sequences costs about one pass, so throughput grows almost linearly with batch size.' },
+    start: { kitchens: [{ type: 'L4', burners: 1 }], coins: 0 }, rent: false, build: [], lots: 1, burnersMax: 8,
+    toggles: [], slo: { ttft: 2.5, tpot: null }, patience: 10,
+    rate: () => 0.8, orders: { p: [50, 400], o: [60, 260], longFrac: 0 },
+    goal: { served: 25, timeLimit: 120, maxAngry: 8 }, stars: { happy: [0.75, 0.9] } },
+
+  { id: 2, name: "Don't wait for the table",
+    intro: { kid: 'This kitchen has an old rule: a whole table sits down together, and nobody new sits until EVERYONE at the table has finished. Watch the burners go dark while the slowest eater finishes. Then switch on Seat anytime.',
+             xray: 'Static batching: the GPU takes a batch, runs it until the LONGEST sequence finishes, then takes the next batch. Short requests leave early and their slots sit idle. Continuous (iteration-level) batching admits new requests at every step.' },
+    goalText: 'Serve 35 customers before 2:00. If more than 6 give up, you lose.',
+    learn: { kid: "Don't make everyone wait for the slowest eater. Seat new customers the moment a burner frees up.",
+             xray: 'Continuous batching (Orca, OSDI 2022; vLLM) schedules at the iteration level, so a finished sequence\'s slot is refilled on the next step. It typically gives 2–4× throughput over static batching at the same latency.' },
+    start: { kitchens: [{ type: 'L4', burners: 10 }], coins: 0, static: true }, rent: false, build: [], lots: 1, burnersMax: 10, burnersMin: 10,
+    toggles: ['seat'], slo: { ttft: 2.5, tpot: null }, patience: 10,
+    rate: () => 1.1, orders: { p: [50, 400], o: [30, 380], longFrac: 0 },
+    goal: { served: 35, timeLimit: 120, maxAngry: 6 }, stars: { happy: [0.7, 0.85] } },
+
+  { id: 3, name: 'The apprentice',
+    intro: { kid: 'VIP customers! They want a new bite every 30 ms. But your stove needs about 35 ms per tick, because the chef has to walk through the whole cookbook every time. More burners cannot fix that. Hire the apprentice chef: they guess the next few bites, and the chef checks them all in one tick.',
+             xray: 'A tight TPOT SLO of 30 ms. One L4 decode step for this model is ≥ 34.7 ms (weights / bandwidth), so batching cannot help: you need more tokens per step. Speculative decoding: a small draft model proposes k = 4 tokens, the target model verifies them in one forward pass and keeps the accepted prefix.' },
+    goalText: 'Keep at least 70% of the VIPs happy for 1:30.',
+    learn: { kid: 'A quick helper who guesses ahead lets the chef serve several bites per tick. It works best when the kitchen is quiet.',
+             xray: 'With acceptance rate α ≈ 0.7 and k = 4, each step yields (1 − α^5)/(1 − α) ≈ 2.8 tokens, cutting TPOT ~2× at small batch. At large batch the GPU becomes compute-bound and verifying 5 tokens per sequence costs more than it saves, so speculation hurts throughput. Turn it off under load.' },
+    start: { kitchens: [{ type: 'L4', burners: 16 }], coins: 0 }, rent: false, build: [], lots: 1, burnersMax: 64,
+    toggles: ['spec'], slo: { ttft: 2.5, tpot: 0.030 }, patience: 10,
+    rate: t => 0.6 + 0.6 * Math.min(1, t / 40), orders: { p: [50, 400], o: [60, 260], longFrac: 0 },
+    goal: { timeLimit: 90, happyMin: 0.7 }, stars: { happy: [0.82, 0.92] } },
+
+  { id: 4, name: 'Fridge full',
+    intro: { kid: 'Big orders are coming: coding customers bring a giant recipe book with every order. Every order needs fridge space while it cooks, and big orders need a LOT. When the fridge overflows, customers get bumped back to the line. You have two new tricks.',
+             xray: 'Long-context requests: half carry a shared 6,000-token prefix (think a repo or a system prompt). Every token in flight needs KV cache: 56 KB each for this model, about 210k tokens on an L4. PagedAttention allocates 16-token blocks as sequences grow and preempts when blocks run out.' },
+    goalText: 'Keep at least 70% of customers happy for 2 minutes. More than 20 giving up loses.',
+    learn: { kid: 'Fridge space, not burners, limits you when orders are big. Pack food tighter, and share the part everybody orders.',
+             xray: 'For long contexts the KV cache, not compute, caps concurrency. FP8 KV halves bytes per token (2× capacity). Prefix caching hashes 16-token blocks so identical prefixes are computed once and shared across requests: less prefill AND less memory.' },
+    start: { kitchens: [{ type: 'L4', burners: 64 }], coins: 0 }, rent: false, build: [], lots: 1, burnersMax: 96,
+    toggles: ['fp8', 'prefix'], slo: { ttft: 2.5, tpot: 0.060 }, patience: 10,
+    rate: () => 1.3, orders: { p: [50, 400], o: [60, 260], longFrac: 0.6 },
+    goal: { timeLimit: 120, happyMin: 0.7, maxAngry: 20 }, stars: { happy: [0.8, 0.9] } },
+
+  { id: 5, name: 'Lunch rush',
+    intro: { kid: 'Business is booming! You can open more kitchens now, but each one costs rent every second, even when it is empty. New kitchens take a few seconds to open. A huge lunch rush is coming: get ready before it hits.',
+             xray: 'Horizontal scaling. Each GPU bills by the hour busy or idle (approximate on-demand prices). New replicas cold-start: image pull plus loading weights. Bigger GPUs are cheaper per token only when they are kept full.' },
+    goalText: 'Survive 2:30 with at least 75% happy customers and more coins than you started with.',
+    learn: { kid: 'Open kitchens BEFORE the rush, not during it. And a giant kitchen only pays off when it is full.',
+             xray: 'Cold starts mean you must scale ahead of demand. Cost per million tokens = $/hour ÷ tokens/hour, so utilization decides which GPU is cheapest. Autoscalers react after the queue grows; predictive scaling or headroom covers the gap.' },
+    start: { kitchens: [{ type: 'L4', burners: 32 }], coins: 500 }, rent: true, build: ['L4', 'A100', 'H100'], lots: 6, burnersMax: 128,
+    toggles: ['fp8', 'prefix', 'spec'], slo: { ttft: 2.5, tpot: 0.060 }, patience: 10, prefixOn: true,
+    rate: t => t < 60 ? 3 + t / 12 : t < 110 ? 8 : Math.max(3, 8 - (t - 110) / 8),
+    orders: { p: [50, 400], o: [60, 260], longFrac: 0.2 },
+    events: [{ type: 'rush', at: 70, dur: 22, mult: 2, name: 'Lunch rush' }],
+    goal: { timeLimit: 150, happyMin: 0.75, profitMin: 0 }, stars: { profit: [1500, 3000] } },
+
+  { id: 6, name: 'The big day',
+    intro: { kid: 'The whole day at once: two rushes, a giant order, and something is going to catch fire. Keep your cool, keep the customers happy, and finish with the most coins you can.',
+             xray: 'Everything together: diurnal traffic, two spikes, one enormous request, and a node failure that drops a GPU and re-queues its in-flight requests. Plan headroom (N+1), mind cold starts, and keep the fleet sized to demand.' },
+    goalText: 'Survive 4:00 with at least 75% happy customers and more coins than you started with.',
+    learn: { kid: 'Real kitchens plan for surprises: a spare kitchen, early prep for rushes, and closing kitchens when it gets quiet.',
+             xray: 'Failure domains: when a node dies, in-flight requests are retried elsewhere, so you need N+1 headroom. Combine predictive scaling for known peaks, reactive scaling for surprises, and scale-down to protect cost per token.' },
+    start: { kitchens: [{ type: 'L4', burners: 48 }, { type: 'L4', burners: 48 }], coins: 800 }, rent: true, build: ['L4', 'A100', 'H100'], lots: 8, burnersMax: 256,
+    toggles: ['fp8', 'prefix', 'spec'], slo: { ttft: 2.5, tpot: 0.060 }, patience: 10, prefixOn: true,
+    rate: t => { const pts = [[0, 4], [40, 8], [80, 12], [110, 8], [150, 14], [200, 10], [240, 3]];
+      for (let i = 1; i < pts.length; i++) if (t <= pts[i][0]) { const [a, va] = pts[i - 1], [b, vb] = pts[i]; return va + (vb - va) * (t - a) / (b - a); } return 3; },
+    orders: { p: [50, 400], o: [60, 260], longFrac: 0.2 },
+    events: [{ type: 'rush', at: 55, dur: 20, mult: 2, name: 'Morning rush' }, { type: 'giant', at: 100, name: 'The Giant Order' },
+             { type: 'fire', at: 130, name: 'Kitchen fire' }, { type: 'rush', at: 170, dur: 22, mult: 2.2, name: 'Dinner rush' }],
+    goal: { timeLimit: 240, happyMin: 0.75, profitMin: 0 }, stars: { profit: [4000, 8000] } },
+];
+
+const hooks = { log() {}, served() {}, angry() {}, bumped() {}, end() {}, event() {} };
+let S = null;
+const rnd = (a, b) => a + Math.random() * (b - a);
+
+function startLevel(L) {
+  S = {
+    L, t: 0, speed: 0, over: false, win: false, coins: L.start.coins, queue: [], kitchens: [], kSeq: 0, cSeq: 0,
+    static: !!L.start.static, fp8kv: false, prefix: !!L.prefixOn, spec: false, nextArr: 0.3, rush: 1, rate: 0,
+    served: 0, happy: 0, angry: 0, bumped: 0, combo: 0, tokens: 0, revenue: 0, rent: 0, profitRate: 0, lastMoney: L.start.coins,
+    events: (L.events || []).map(e => ({ ...e, warned: false, fired: false })), recent: [], winTok: 0, tokRate: 0, acc: 0, fireK: null,
+  };
+  for (const k of L.start.kitchens) addKitchen(k.type, k.burners, true);
+}
+
+function spawn(t0, giant) {
+  const O = S.L.orders, long = !giant && Math.random() < O.longFrac;
+  const out = giant ? 900 : Math.round(rnd(O.o[0], O.o[1]));
+  const prompt = giant ? 7800 : long ? SHARED_PREFIX + Math.round(rnd(200, 1500)) : Math.round(rnd(O.p[0], O.p[1]));
+  S.queue.push({ id: ++S.cSeq, t0, prompt, out, gen: 0, tFirst: null, hue: (S.cSeq * 137) % 360, shared: long, giant: !!giant, bumped: 0 });
+}
+
+const capBlocks = k => Math.floor(TYPES[k.type].kvTokens * (S.fp8kv ? 2 : 1) / BLOCK);
+const ownBlocks = r => Math.ceil(((S.prefix && r.shared ? r.prompt - SHARED_PREFIX : r.prompt) + r.gen) / BLOCK);
+function usedBlocks(k) {
+  let u = 0, sh = false;
+  for (const r of k.run) { u += ownBlocks(r); if (S.prefix && r.shared) sh = true; }
+  return u + (sh ? prefixBlocks : 0);
+}
+const serving = () => S.kitchens.filter(k => k.state !== 'drain');
+
+function addKitchen(type, burners, warm) {
+  if (!warm && serving().length >= S.L.lots) return false;
+  S.kitchens.push({ id: ++S.kSeq, type, burners: burners || Math.min(S.L.burnersMax, 48), state: warm ? 'up' : 'boot', boot: warm ? 0 : TYPES[type].boot,
+    t: S.t, run: [], step: 0, last: null, earn: 0, fire: 0, kvFullAt: -99, prefixWarm: false, tok: 0, tokRate: 0 });
+  return true;
+}
+function closeKitchen(k) {
+  if (S.kitchens.filter(x => x.state === 'up' && x !== k).length < 1 && k.state === 'up') return false;
+  if (k.state === 'boot') S.kitchens.splice(S.kitchens.indexOf(k), 1);
+  else k.state = 'drain';
+  return true;
+}
+
+// One scheduler iteration on one GPU: admit → prefill → decode one token for everyone → free finished → preempt if out of KV.
+function kitchenStep(k) {
+  const T = TYPES[k.type], cap = capBlocks(k);
+  let prefillTok = 0, admitted = 0;
+  if (k.state === 'up' && !(S.static && k.run.length)) {
+    let used = usedBlocks(k), sh = k.run.some(r => S.prefix && r.shared);
+    for (let i = 0; i < S.queue.length && k.run.length < k.burners; ) {
+      const r = S.queue[i];
+      if (r.t0 > k.t) break;
+      const extra = S.prefix && r.shared && !sh ? prefixBlocks : 0;
+      const need = ownBlocks(r) + 1 + extra;
+      if (used + need > cap * 0.98) { k.kvFullAt = S.t; break; }
+      S.queue.splice(i, 1); k.run.push(r); used += need; admitted++;
+      if (S.prefix && r.shared) {
+        prefillTok += r.prompt - SHARED_PREFIX + r.gen + (k.prefixWarm ? 0 : SHARED_PREFIX);
+        k.prefixWarm = true; sh = true;
+      } else prefillTok += r.prompt + r.gen;
+    }
+  }
+  const n = k.run.length;
+  if (!n) {
+    const next = S.queue.length ? Math.min(...S.queue.map(r => r.t0)) : Infinity;
+    k.t = next > k.t && next < S.t ? next : S.t;
+    k.last = null;
+    if (k.state === 'drain') S.kitchens.splice(S.kitchens.indexOf(k), 1);
+    return;
+  }
+  const kf = S.fp8kv ? 0.95 : 1;
+  // Speculative decoding: a draft model proposes 4 tokens (≈0.6 extra weight reads), the target verifies 5 per
+  // sequence in one pass (5× the per-seq cost plus a compute term that bites at large batch).
+  const base = T.base * kf * (S.spec ? 1.6 : 1), seq = (T.per * kf * (S.spec ? 5 : 1) + (S.spec ? 0.0002 * T.base / 0.0347 : 0)) * n;
+  const pre = prefillTok / T.prefill;
+  const dt = base + seq + pre;
+  k.t += dt; k.step++;
+  const last = { n, base, seq, pre, dt, admitted, prefillTok, finished: 0, preempted: 0, made: 0, guessed: 0 };
+  for (let i = n - 1; i >= 0; i--) {
+    const r = k.run[i];
+    if (r.tFirst === null) r.tFirst = k.t;
+    let got = 1;
+    if (S.spec) { while (got < 5 && Math.random() < 0.7) got++; last.guessed += 4; }
+    got = Math.min(got, r.out - r.gen);
+    r.gen += got; last.made += got;
+    if (r.gen >= r.out) { k.run.splice(i, 1); finish(r, k); last.finished++; }
+  }
+  S.winTok += last.made; S.tokens += last.made; k.tok += last.made;
+  let used = usedBlocks(k);
+  while (used > cap && k.run.length > 1) {
+    const r = k.run.pop(); r.bumped++; S.bumped++; last.preempted++;
+    S.queue.unshift(r); hooks.bumped(r, k);
+    used = usedBlocks(k);
+  }
+  k.last = last;
+}
+
+function finish(r, k) {
+  const ttft = r.tFirst - r.t0, tpot = (k.t - r.tFirst) / Math.max(1, r.out - 1);
+  const slo = S.L.slo, happy = ttft <= slo.ttft && (!slo.tpot || tpot <= slo.tpot);
+  S.served++;
+  if (happy) { S.happy++; S.combo++; } else S.combo = 0;
+  const mult = happy ? 1 + Math.min(1, Math.floor(S.combo / 10) * 0.25) : 0.5;
+  const coins = r.out * COIN_PER_TOKEN * mult * (S.fp8kv ? 0.95 : 1);
+  S.coins += coins; S.revenue += coins; k.earn += coins;
+  S.recent.push({ t: S.t, ttft, tpot, happy });
+  hooks.served(r, k, happy, coins, ttft, tpot);
+}
+
+function simStep(d) {
+  if (S.over) return;
+  S.t += d;
+  const L = S.L;
+  S.rush = 1;
+  for (const e of S.events) {
+    if (e.type === 'rush') {
+      if (!e.warned && S.t >= e.at - 15) { e.warned = true; hooks.event(e, 'warn'); }
+      if (S.t >= e.at && S.t < e.at + e.dur) S.rush *= e.mult;
+    } else if (!e.fired && S.t >= e.at) {
+      if (e.type === 'giant') { e.fired = true; spawn(S.t, true); hooks.event(e, 'go'); }
+      if (e.type === 'fire') {
+        const ups = S.kitchens.filter(k => k.state === 'up');
+        if (ups.length > 1) {
+          e.fired = true;
+          const k = ups.sort((a, b) => b.run.length - a.run.length)[0];
+          k.state = 'fire'; k.fire = 12; S.queue.unshift(...k.run); k.run = []; k.last = null;
+          hooks.event(e, 'go', k);
+        }
+      }
+    }
+  }
+  S.rate = L.rate(S.t) * S.rush;
+  while (S.nextArr <= S.t) { spawn(S.nextArr); S.nextArr += -Math.log(1 - Math.random()) / Math.max(0.05, S.rate); }
+  for (let i = S.queue.length - 1; i >= 0; i--) {
+    const r = S.queue[i];
+    if (r.tFirst === null && S.t - r.t0 > L.patience) {
+      S.queue.splice(i, 1); S.angry++; S.combo = 0;
+      S.recent.push({ t: S.t, ttft: L.patience, tpot: 0, happy: false });
+      hooks.angry(r);
+    }
+  }
+  for (const k of S.kitchens) {
+    if (k.state === 'boot' && (k.boot -= d) <= 0) { k.state = 'up'; k.t = S.t; }
+    if (k.state === 'fire' && (k.fire -= d) <= 0) { k.state = 'up'; k.t = S.t; }
+    if (L.rent) { const c = TYPES[k.type].usd * RENT_PER_USD_H * d; S.coins -= c; S.rent += c; }
+  }
+  for (let guard = 0; guard < 60000; guard++) {
+    let k = null;
+    for (const x of S.kitchens) if ((x.state === 'up' || x.state === 'drain') && x.t < S.t && (!k || x.t < k.t)) k = x;
+    if (!k) break;
+    kitchenStep(k);
+  }
+  if ((S.acc += d) >= 0.5) {
+    S.tokRate = S.winTok / S.acc; S.winTok = 0;
+    S.profitRate = 0.6 * S.profitRate + 0.4 * (S.coins - S.lastMoney) / S.acc; S.lastMoney = S.coins;
+    for (const k of S.kitchens) { k.tokRate = k.tok / S.acc; k.tok = 0; }
+    S.acc = 0;
+    S.recent = S.recent.filter(x => S.t - x.t <= 8);
+  }
+  checkEnd();
+}
+
+const happyPct = () => { const n = S.served + S.angry; return n ? S.happy / n : 1; };
+const profit = () => S.coins - S.L.start.coins;
+function checkEnd() {
+  const G = S.L.goal;
+  if (G.maxAngry != null && S.angry > G.maxAngry) return endLevel(false, 'Too many customers gave up.');
+  if (S.L.rent && S.coins < -100) return endLevel(false, 'You ran out of coins.');
+  if (G.served != null && S.served >= G.served) return endLevel(true);
+  if (S.t >= G.timeLimit) {
+    if (G.served != null) return endLevel(false, "Time's up!");
+    if (happyPct() < G.happyMin) return endLevel(false, `Only ${Math.round(happyPct() * 100)}% of customers were happy (needed ${Math.round(G.happyMin * 100)}%).`);
+    if (G.profitMin != null && profit() < G.profitMin) return endLevel(false, 'You spent more on rent than you earned.');
+    return endLevel(true);
+  }
+}
+function starsFor() {
+  if (!S.win) return 0;
+  const st = S.L.stars;
+  if (st.happy) return 1 + (happyPct() >= st.happy[0]) + (happyPct() >= st.happy[1]);
+  return 1 + (profit() >= st.profit[0]) + (profit() >= st.profit[1]);
+}
+function endLevel(win, why) {
+  if (S.over) return;
+  S.over = true; S.win = win; S.why = why || ''; S.speed = 0;
+  hooks.end();
+}
+
+// Rough requests/s a kitchen sustains: each request costs out × step / n of shared decode plus its own prefill.
+const avgOut = () => (S.L.orders.o[0] + S.L.orders.o[1]) / 2;
+function avgPrefill() {
+  const O = S.L.orders, f = O.longFrac, shortP = (O.p[0] + O.p[1]) / 2;
+  return (1 - f) * shortP + f * ((S.prefix ? 0 : SHARED_PREFIX) + 850);
+}
+function kitchenCapacity(type, burners) {
+  const T = TYPES[type], O = S.L.orders, f = O.longFrac;
+  const need = (1 - f) * ((O.p[0] + O.p[1]) / 2) + f * ((S.prefix ? 0 : SHARED_PREFIX) + 850) + avgOut() / 2;
+  const kvSlots = Math.floor(T.kvTokens * (S.fp8kv ? 2 : 1) / need);
+  const n = Math.max(1, Math.min(burners, kvSlots));
+  const step = stepTimeAt(type, n) * (S.spec ? 1 / SPEC_TOKENS : 1);
+  const cap = 1 / (avgOut() * step / n + avgPrefill() / T.prefill);
+  return cap * (S.static ? 0.6 : 1);
+}
+function capacity(withBooting) {
+  return S.kitchens.reduce((a, k) => a + ((k.state === 'up' || (withBooting && k.state === 'boot')) ? kitchenCapacity(k.type, k.burners) : 0), 0);
+}
+const SPEC_TOKENS = (1 - 0.7 ** 5) / 0.3;
+function stepTimeAt(type, n) {
+  const T = TYPES[type], kf = S.fp8kv ? 0.95 : 1;
+  return S.spec ? T.base * kf * 1.6 + (T.per * kf * 5 + 0.0002 * T.base / 0.0347) * n : (T.base + T.per * n) * kf;
+}
+// ---- SIM END ----
+
+// ================= UI =================
+const $ = s => document.querySelector(s);
+const root = document.documentElement;
+const RM = matchMedia('(prefers-reduced-motion: reduce)').matches;
+const cv = $('#scene'), cx = cv.getContext('2d');
+let VW = 0, VH = 0, DPR = 1, C = {};
+let xray = false, sound = false, selected = null, hits = [], pulseTarget = null, coachKey = '', levelIdx = 0;
+const floats = [], leavers = [];
+let stars = {};
+try { stars = JSON.parse(localStorage.getItem('token-kitchen-stars') || '{}'); } catch (e) {}
+
+const X = (kid, x) => xray ? x : kid;
+function readColors() {
+  const cs = getComputedStyle(root);
+  for (const n of ['bg', 'floor', 'panel', 'panel-2', 'line', 'fg', 'muted', 'accent', 'gold', 'good', 'bad', 'cool']) C[n] = cs.getPropertyValue('--' + n).trim();
+}
+const fmtTime = s => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
+const kName = k => xray ? `${k.type} #${k.id}` : `${TYPES[k.type].kid} ${k.id}`;
+
+// ---------- sound ----------
+let AC = null;
+function beep(f, dur = 0.08, type = 'sine', vol = 0.05) {
+  if (!sound) return;
+  try {
+    AC = AC || new (window.AudioContext || window.webkitAudioContext)();
+    const o = AC.createOscillator(), g = AC.createGain();
+    o.type = type; o.frequency.value = f; g.gain.value = vol;
+    g.gain.exponentialRampToValueAtTime(0.0001, AC.currentTime + dur);
+    o.connect(g); g.connect(AC.destination); o.start(); o.stop(AC.currentTime + dur);
+  } catch (e) {}
+}
+
+// ---------- hooks from the sim ----------
+let lastCoinBeep = 0;
+hooks.served = (r, k, happy, coins) => {
+  if (k.box && leavers.length < 80) leavers.push({ x: k.box.x + k.box.w * 0.5, y: k.box.y + k.box.h * 0.4, hue: r.hue, happy, life: 0, big: r.giant || r.shared });
+  if (S.combo > 0 && S.combo % 10 === 0 && k.box) { floats.push({ x: k.box.x + k.box.w / 2, y: k.box.y + 30, text: `COMBO ×${(1 + Math.min(1, S.combo / 10 * 0.25)).toFixed(2)}`, col: C.gold, life: 0, size: 18 }); beep(880, 0.15, 'triangle'); }
+  const now = performance.now();
+  if (happy && now - lastCoinBeep > 90) { lastCoinBeep = now; beep(1200 + Math.random() * 200, 0.05, 'triangle', 0.03); }
+};
+hooks.angry = r => {
+  if (floats.length < 80) floats.push({ x: 30 + Math.random() * 60, y: VH - 60 - Math.random() * 140, text: X('Grrr! Left', 'timeout'), col: C.bad, life: 0, size: 13 });
+  beep(160, 0.18, 'sawtooth', 0.04);
+};
+hooks.bumped = (r, k) => {
+  if (k.box && floats.length < 80) floats.push({ x: k.box.x + k.box.w / 2, y: k.box.y + k.box.h * 0.75, text: X('Bumped!', 'preempted'), col: C.bad, life: 0, size: 13 });
+};
+hooks.event = (e, phase, k) => {
+  if (e.type === 'rush' && phase === 'warn') { beep(520, 0.2, 'square', 0.03); }
+  if (e.type === 'giant') { if (floats.length < 80) floats.push({ x: 70, y: VH / 2, text: X('A GIANT order!', '7.8k-token prompt'), col: C.accent, life: 0, size: 20 }); beep(220, 0.4, 'square', 0.04); }
+  if (e.type === 'fire') { beep(110, 0.6, 'sawtooth', 0.05); }
+};
+hooks.end = () => {
+  const L = S.L, n = starsFor();
+  if (S.win) {
+    stars[L.id] = Math.max(stars[L.id] || 0, n);
+    try { localStorage.setItem('token-kitchen-stars', JSON.stringify(stars)); } catch (e) {}
+    beep(660, 0.12, 'triangle'); setTimeout(() => beep(990, 0.25, 'triangle'), 130);
+  } else beep(180, 0.4, 'sawtooth', 0.04);
+  $('#end-sub').textContent = `Level ${L.id} · ${L.name}`;
+  $('#end-title').textContent = S.win ? ['Delicious!', 'Well cooked!', 'Chef\'s kiss!'][n - 1] || 'Delicious!' : 'Kitchen closed';
+  $('#end-stars').innerHTML = [1, 2, 3].map(i => `<span class="${i <= n ? '' : 'off'}">★</span>`).join('');
+  const cells = [['Served', S.served], ['Happy', Math.round(happyPct() * 100) + '%'], ['Gave up', S.angry], [L.rent ? 'Profit' : 'Coins', Math.round(L.rent ? profit() : S.coins)]];
+  $('#end-res').innerHTML = cells.map(([a, b]) => `<div><small>${a}</small><b>${b}</b></div>`).join('');
+  $('#end-kid').textContent = S.win ? L.learn.kid : S.why + ' ' + 'Tip: ' + L.learn.kid;
+  $('#end-xray').textContent = L.learn.xray;
+  const hasNext = levelIdx < LEVELS.length - 1;
+  $('#end-next').hidden = !S.win || !hasNext;
+  showModal('m-end');
+};
+
+// ---------- overlays ----------
+function showModal(id) {
+  $('#overlay').hidden = false;
+  for (const m of ['m-menu', 'm-intro', 'm-end']) $('#' + m).hidden = m !== id;
+  const f = $('#' + id).querySelector('.btn.big:not([hidden]), .levels .btn:not(:disabled)');
+  f && f.focus();
+}
+function unlocked(i) { return i === 0 || (stars[LEVELS[i - 1].id] || 0) > 0 || (stars[LEVELS[i].id] || 0) > 0; }
+function renderMenu() {
+  $('#levels').innerHTML = LEVELS.map((L, i) => `
+    <button class="btn" data-level="${i}" ${unlocked(i) ? '' : 'disabled'}>
+      <small>Level ${L.id}</small><span>${L.name}</span>
+      <span class="stars">${'★'.repeat(stars[L.id] || 0)}${'☆'.repeat(3 - (stars[L.id] || 0))}</span>
+    </button>`).join('');
+}
+function openIntro(i) {
+  levelIdx = i;
+  const L = LEVELS[i];
+  $('#intro-num').textContent = `Level ${L.id} of ${LEVELS.length}`;
+  $('#intro-title').textContent = L.name;
+  $('#intro-text').textContent = X(L.intro.kid, L.intro.xray);
+  $('#intro-goal').textContent = L.goalText;
+  showModal('m-intro');
+}
+function play() {
+  const L = LEVELS[levelIdx];
+  startLevel(L);
+  floats.length = 0; leavers.length = 0;
+  selected = S.kitchens[0];
+  $('#overlay').hidden = true;
+  $('#lvl-name').textContent = `Level ${L.id} · ${L.name}`;
+  $('#t-seat').checked = !S.static; $('#t-fp8').checked = S.fp8kv; $('#t-prefix').checked = S.prefix;
+  $('#rules').hidden = !L.toggles.length && !L.start.static;
+  $('#tg-seat').hidden = !L.toggles.includes('seat');
+  $('#tg-fp8').hidden = !L.toggles.includes('fp8');
+  $('#tg-prefix').hidden = !L.toggles.includes('prefix');
+  $('#tg-spec').hidden = !L.toggles.includes('spec');
+  $('#t-spec').checked = S.spec;
+  $('#buildcard').hidden = !L.build.length;
+  buildButtons();
+  S.speed = 1;
+  coachKey = '';
+  relabel();
+}
+
+// ---------- labels that change with X-ray ----------
+function relabel() {
+  root.dataset.xray = xray ? 'on' : 'off';
+  $('#xray-btn').setAttribute('aria-pressed', String(xray));
+  readColors();
+  $('#i-burners-l').textContent = X('Burners', 'max_num_seqs');
+  $('#i-tick-l').textContent = X('One tick', 'One decode step');
+  $('#m-dem-l').textContent = X('Customers', 'Demand');
+  $('#m-cap-l').textContent = X('Can serve', 'Capacity');
+  $('#k1l').textContent = X('Cooking now', 'Running seqs');
+  $('#k2l').textContent = X('Bites / second', 'Tokens / s');
+  $('#k3l').textContent = X('Fridge used', 'KV cache used');
+  $('#k4l').textContent = X('Bite speed', 'TPOT (step time)');
+  $('#loop-l').textContent = X('What the kitchen does every tick', 'The scheduler loop, live');
+  $('#rules-title').textContent = X('Kitchen rules', 'Serving engine flags');
+  $('#t-seat-n').textContent = X('Seat anytime', 'Continuous batching');
+  $('#t-seat-d').textContent = X('New customers sit as soon as any burner frees up', 'Admit new sequences every step instead of per batch');
+  $('#t-fp8-n').textContent = X('Compact fridge', 'FP8 KV cache');
+  $('#t-fp8-d').textContent = X('Fits 2× more food, food tastes a tiny bit worse', '--kv-cache-dtype fp8: 2× KV capacity, small quality cost');
+  $('#t-prefix-n').textContent = X('Recipe book', 'Prefix caching');
+  $('#t-spec-n').textContent = X('Apprentice chef', 'Speculative decoding');
+  $('#t-spec-d').textContent = X('Guesses the next bites so the chef checks several per tick. Great when quiet, slows a busy kitchen', 'Draft model proposes k=4 tokens, target verifies in one pass. Wins at small batch, loses when compute-bound');
+  $('#t-prefix-d').textContent = X('Read the shared part of big orders once and reuse it', '--enable-prefix-caching: share KV blocks of identical prefixes');
+  $('#build-title').textContent = X('Open a kitchen', 'Add a GPU replica');
+  $('#build-hint').textContent = X('New kitchens take a few seconds to open, and you pay rent from the moment you click.', 'Cold start = node + image pull + weight load. Billing starts immediately. Prices ≈ on-demand $/GPU-hour.');
+  $('#legend').innerHTML = X(
+    '<span style="--c:#9aa7b8">walk the whole cookbook</span><span style="--c:var(--accent)">each lit burner</span><span style="--c:var(--cool)">reading new orders</span>',
+    '<span style="--c:#9aa7b8">read weights (fixed)</span><span style="--c:var(--accent)">KV reads × seqs</span><span style="--c:var(--cool)">prefill</span>');
+  if (S) { $('#intro-text').textContent = X(LEVELS[levelIdx].intro.kid, LEVELS[levelIdx].intro.xray); buildButtons(); }
+  coachKey = '';
+}
+function buildButtons() {
+  if (!S) return;
+  $('#build').innerHTML = S.L.build.map(t => `<button class="btn" data-build="${t}"><span>${X(TYPES[t].kid, t)}</span><small>${X(`${(TYPES[t].usd * RENT_PER_USD_H).toFixed(1)} coins/s`, `$${TYPES[t].usd.toFixed(2)}/h`)}</small><small>+${kitchenCapacity(t, Math.min(S.L.burnersMax, 48)).toFixed(1)}/s</small></button>`).join('');
+}
+
+// ---------- input ----------
+function setBurners(k, v) {
+  const L = S.L, min = L.burnersMin || 1;
+  const steps = [1, 2, 3, 4, 6, 8, 10, 12, 16, 24, 32, 48, 64, 96, 128, 192, 256].filter(x => x >= min && x <= L.burnersMax);
+  let i = steps.findIndex(x => x >= k.burners);
+  if (i < 0) i = steps.length - 1;
+  i = Math.max(0, Math.min(steps.length - 1, i + v));
+  k.burners = steps[i];
+  beep(v > 0 ? 700 : 500, 0.05, 'triangle', 0.03);
+}
+document.addEventListener('click', e => {
+  const b = e.target.closest('button');
+  if (!b) return;
+  if (b.dataset.speed != null && S && !S.over) S.speed = +b.dataset.speed;
+  if (b.dataset.level != null) openIntro(+b.dataset.level);
+  if (b.dataset.build && S && !S.over) {
+    if (addKitchen(b.dataset.build)) { selected = S.kitchens[S.kitchens.length - 1]; beep(440, 0.1, 'triangle'); }
+  }
+  if (b.id === 'b-plus' && selected && S.L.burnersMax > selected.burners) setBurners(selected, +1);
+  if (b.id === 'b-minus' && selected) setBurners(selected, -1);
+  if (b.id === 'close-k' && selected && closeKitchen(selected)) selected = S.kitchens.find(k => k.state === 'up') || null;
+  if (b.id === 'xray-btn') { xray = !xray; relabel(); }
+  if (b.id === 'sound-btn') { sound = !sound; b.setAttribute('aria-pressed', String(sound)); beep(660, 0.08, 'triangle'); }
+  if (b.id === 'menu-btn') { if (S && !S.over) S.speed = 0; renderMenu(); showModal('m-menu'); }
+  if (b.id === 'go') play();
+  if (b.id === 'intro-back' || b.id === 'end-menu') { renderMenu(); showModal('m-menu'); }
+  if (b.id === 'end-retry') openIntro(levelIdx);
+  if (b.id === 'end-next') openIntro(levelIdx + 1);
+});
+$('#t-seat').addEventListener('change', e => { S.static = !e.target.checked; coachKey = ''; });
+$('#t-fp8').addEventListener('change', e => { S.fp8kv = e.target.checked; buildButtons(); });
+$('#t-prefix').addEventListener('change', e => { S.prefix = e.target.checked; buildButtons(); });
+$('#t-spec').addEventListener('change', e => { S.spec = e.target.checked; buildButtons(); coachKey = ''; });
+cv.addEventListener('click', e => {
+  if (!S) return;
+  const r = cv.getBoundingClientRect(), x = e.clientX - r.left, y = e.clientY - r.top;
+  for (const h of hits) if (x >= h.x && x <= h.x + h.w && y >= h.y && y <= h.y + h.h) { h.fn(); return; }
+});
+document.addEventListener('keydown', e => {
+  if (!S || S.over || !$('#overlay').hidden || e.target.matches('input')) return;
+  if (e.key === ' ') { e.preventDefault(); S.speed = S.speed ? 0 : 1; }
+  if (e.key === 'x' || e.key === 'X') { xray = !xray; relabel(); }
+  if ((e.key === '+' || e.key === '=') && selected) setBurners(selected, 1);
+  if (e.key === '-' && selected) setBurners(selected, -1);
+});
+
+// ---------- coach ----------
+function coach() {
+  const L = S.L, dem = S.rate, cap = capacity(false), capAll = capacity(true);
+  const waiting = S.queue.filter(r => r.tFirst === null);
+  const oldest = waiting.length ? Math.max(...waiting.map(r => S.t - r.t0)) : 0;
+  const ups = S.kitchens.filter(k => k.state === 'up');
+  const k0 = selected && S.kitchens.includes(selected) ? selected : ups[0];
+  const tpotOf = k => k.last.dt / Math.max(1, (k.last.made || k.last.n) / k.last.n);
+  const slowK = L.slo.tpot && ups.find(k => k.last && tpotOf(k) > L.slo.tpot * 1.02 && k.run.length > 2);
+  const busySpec = S.spec && ups.some(k => k.run.length > 24);
+  const fullK = ups.find(k => S.t - k.kvFullAt < 2 || (k.last && k.last.preempted));
+  const fireK = S.kitchens.find(k => k.state === 'fire');
+  const rush = S.events.find(e => e.type === 'rush' && S.t >= e.at - 15 && S.t < e.at);
+  const buyT = S.coins > 150 ? 'A100' : 'L4';
+
+  if (L.id === 1 && k0 && k0.burners < 4) return { kind: 'alert', tag: 'Customers are lining up', target: 'plus',
+    text: X(`You have only ${k0.burners} burner lit, so you cook for ${k0.burners} customer at a time. Press + to light more burners.`, `max_num_seqs = ${k0.burners}: the GPU decodes ${k0.burners} sequence per step and the queue grows. Raise it.`) };
+  if (L.id === 2 && S.static) return { kind: S.t > 10 ? 'alert' : 'warn', tag: 'Old-school seating', target: S.t > 6 ? '#t-seat' : null,
+    text: X(S.t > 6 ? 'See the dark burners with X marks? They are free, but nobody can sit until the whole table finishes. Switch on Seat anytime.' : 'Watch the burners. When a customer finishes, the burner goes dark and stays dark until everyone at the table is done...',
+            S.t > 6 ? 'Idle slots marked X: static batching holds them until the longest sequence finishes. Enable continuous batching.' : 'Static batching: the batch runs until its longest sequence completes...') };
+  if (L.id === 3 && !S.spec) return { kind: S.t > 5 ? 'alert' : 'warn', tag: X('Too slow for VIPs', 'TPOT floor > SLO'), target: '#t-spec',
+    text: X('VIPs want a bite every 30 ms, but one tick takes 35 ms even with a single burner lit. More burners won\'t help. Hire the Apprentice chef!', 'TPOT SLO 30 ms < minimum step time 34.7 ms (weight read). Batching can\'t fix a floor. Enable speculative decoding.') };
+  if (busySpec) return { kind: 'warn', tag: X('Apprentice is in the way', 'Speculation under load'), target: '#t-spec',
+    text: X('The kitchen is busy now, and checking the apprentice\'s guesses for so many plates slows every tick. Send the apprentice home (turn it off).', 'Batch > 24: verification is compute-bound and speculation costs more than it saves. Disable speculative decoding.') };
+  if (fireK) return { kind: 'alert', tag: X('Fire!', 'Node failure'), target: L.build.length ? `[data-build="${buyT}"]` : null,
+    text: X(`${kName(fireK)} caught fire! Its customers went back to the line. It reopens in ${Math.ceil(fireK.fire)} s. Open another kitchen if the line gets long.`, `${fireK.type} #${fireK.id} lost (think Xid error). In-flight requests were re-queued. Back in ${Math.ceil(fireK.fire)} s; spare capacity absorbs this.`) };
+  if (rush && L.build.length) {
+    const spike = L.rate(rush.at + 5) * rush.mult;
+    if (capAll < spike * 1.05) return { kind: 'alert', tag: `${rush.name} in ${Math.ceil(rush.at - S.t)} s`, target: `[data-build="${buyT}"]`,
+      text: X(`Get ready! About ${spike.toFixed(0)} customers per second are coming and you can serve ${capAll.toFixed(0)}. Open a kitchen NOW, because it takes ${TYPES[buyT].boot} s to open.`,
+              `Spike to ~${spike.toFixed(0)} req/s; capacity incl. booting = ${capAll.toFixed(0)}. Cold start is ${TYPES[buyT].boot} s, so scale before it lands.`) };
+  }
+  if (slowK) return { kind: 'warn', tag: X('Bites too slow', 'TPOT over SLO'), target: 'minus',
+    text: X(`So many burners are lit that each tick takes ${Math.round(slowK.last.dt * 1000)} ms, and customers want a bite every 60 ms. Turn a few burners off (−).`,
+            `Step time ${Math.round(slowK.last.dt * 1000)} ms > 60 ms TPOT SLO at batch ${slowK.last.n}${slowK.last.pre > 0.01 ? ' (prefill stalls included)' : ''}. Lower max_num_seqs.`) };
+  if (fullK && L.toggles.includes('prefix') && !S.prefix) return { kind: 'alert', tag: X('Fridge full', 'KV cache exhausted'), target: '#t-prefix',
+    text: X('The fridge is stuffed with copies of the same giant recipe book! Turn on Recipe book so the kitchen keeps just one copy and reads it once.',
+            'Every long request stores its own copy of the same 6k-token prefix. Enable prefix caching to share those KV blocks and skip recomputing them.') };
+  if (fullK && L.toggles.includes('fp8') && !S.fp8kv) return { kind: 'alert', tag: X('Fridge full', 'KV cache exhausted'), target: '#t-fp8',
+    text: X('The fridge is full, so customers get bumped back to the line. Turn on Compact fridge to fit twice as much.', 'Out of KV blocks: sequences are being preempted and recomputed. FP8 KV doubles capacity.') };
+  if (oldest > 2.5 || dem > cap * 1.08) {
+    if (k0 && k0.burners < L.burnersMax && !(L.slo.tpot && k0.last && stepTimeAt(k0.type, k0.burners * 1.4) > L.slo.tpot) && k0.run.length >= k0.burners - 1)
+      return { kind: 'alert', tag: X('Line is growing', 'Queue building'), target: 'plus',
+        text: X(`Customers are waiting. All burners are busy, so press + to light more.`, `All ${k0.burners} slots busy and the queue is growing. Raise max_num_seqs while TPOT has headroom.`) };
+    if (L.build.length) {
+      const booting = S.kitchens.filter(k => k.state === 'boot');
+      if (booting.length && capAll >= dem) return { kind: 'warn', tag: 'Hold on', target: null, text: X(`Help is on the way: a kitchen opens in ${Math.ceil(Math.min(...booting.map(k => k.boot)))} s.`, `Replica cold-starting (${Math.ceil(Math.min(...booting.map(k => k.boot)))} s). Capacity incl. booting covers demand.`) };
+      return { kind: 'alert', tag: X('Need more kitchens', 'Scale out'), target: `[data-build="${buyT}"]`,
+        text: X(`${dem.toFixed(1)} customers a second, and you can serve ${cap.toFixed(1)}. Open another kitchen.`, `Demand ${dem.toFixed(1)} req/s > capacity ${cap.toFixed(1)} req/s. Add a replica.`) };
+    }
+  }
+  if (L.rent && S.profitRate < -1 && ups.length >= 2 && !rush && capAll > dem * 1.4) {
+    const t = [...ups].sort((a, b) => (TYPES[b.type].usd / Math.max(1, b.run.length)) - (TYPES[a.type].usd / Math.max(1, a.run.length)))[0];
+    return { kind: 'alert', tag: X(`Losing ${Math.round(-S.profitRate)} coins a second`, 'Burning money'), target: '#close-k', select: t,
+      text: X(`Rent is more than you're earning. ${kName(t)} costs ${(TYPES[t.type].usd * RENT_PER_USD_H).toFixed(0)} coins a second but has only ${t.run.length} customers cooking. Close it, and open big kitchens only for big crowds.`,
+              `Net ${Math.round(S.profitRate)}/s. ${t.type} #${t.id} costs $${TYPES[t.type].usd}/h at batch ${t.run.length}: utilization too low for its price. Scale in; big GPUs pay only when full.`) };
+  }
+  if (L.rent && ups.length >= 2 && !rush && capAll > dem * 2.3 && capAll - kitchenCapacity(ups[0].type, ups[0].burners) > dem * 1.4) {
+    const t = [...ups].sort((a, b) => TYPES[b.type].usd - TYPES[a.type].usd)[0];
+    return { kind: 'warn', tag: X('Empty kitchens cost rent', 'Over-provisioned'), target: '#close-k', select: t,
+      text: X(`You can serve ${capAll.toFixed(0)} a second but only ${dem.toFixed(1)} are coming. Close ${kName(t)} to stop paying its rent.`, `Capacity ${capAll.toFixed(0)} vs demand ${dem.toFixed(1)} req/s. Scale in ${t.type} #${t.id} to cut cost per token.`) };
+  }
+  const goals = {
+    1: X('Nice! Look inside the kitchen (right panel): the gray part of the tick is the same no matter how many burners are lit.', 'Watch the step-time bar: the weight read dominates, so each extra sequence is nearly free.'),
+    2: X('Now customers sit the moment a burner frees up. Same stove, much more food!', 'Continuous batching: slots refill every iteration. Same GPU, far higher goodput.'),
+    3: X('The apprentice is guessing ahead. Watch the right panel: each tick is longer, but each plate gets about 3 bites.', 'Each step now costs more but yields ~2.8 tokens/seq. Watch TPOT drop below 30 ms.'),
+    4: X('Watch the fridge: big orders fill it fast. Colored squares are food, gold is the shared recipe book.', 'Fridge = KV cache in 16-token pages, colored per sequence. Gold = shared prefix blocks.'),
+  };
+  return { kind: 'win', tag: X('Looking good', 'Healthy'), target: null,
+    text: goals[L.id] || X(`Keep green above orange. You're ${profit() >= 0 ? 'making' : 'losing'} coins: ${Math.round(profit())} so far.`, `Capacity ${capAll.toFixed(1)} vs demand ${dem.toFixed(1)} req/s. Profit ${Math.round(profit())}. Cost/1M tok ≈ $${costPerM().toFixed(2)}.`) };
+}
+function costPerM() {
+  const usd = S.kitchens.reduce((a, k) => a + TYPES[k.type].usd, 0);
+  return S.tokRate > 1 ? usd / (S.tokRate * 3600) * 1e6 : 0;
+}
+
+let pulsedEl = null;
+function renderCoach() {
+  const c = S.over ? { kind: 'info', tag: 'Coach', text: 'Pick a level to start.', target: null } : coach();
+  const key = c.tag + c.text;
+  if (key !== coachKey) {
+    coachKey = key;
+    $('#coach').className = 'coach ' + c.kind;
+    $('#coach-tag').textContent = c.tag;
+    $('#coach-text').textContent = c.text;
+  }
+  pulseTarget = c.target;
+  let el = null;
+  if (c.target === 'plus') el = $('#b-plus');
+  else if (c.target === 'minus') el = $('#b-minus');
+  else if (c.target) { el = document.querySelector(c.target); if (el && el.matches('input')) el = el.closest('.toggle'); }
+  if (el !== pulsedEl) { pulsedEl && pulsedEl.classList.remove('pulse'); el && el.classList.add('pulse'); pulsedEl = el; }
+  if (c.select && selected !== c.select) selected = c.select;
+
+  const dem = S.rate, cap = capacity(false), capAll = capacity(true);
+  const scale = Math.max(dem, capAll, 1) * 1.15, pct = v => (100 * v / scale).toFixed(1) + '%';
+  $('#m-dem').style.width = pct(dem);
+  $('#m-cap').style.width = pct(cap); $('#m-cap').classList.toggle('short', cap < dem);
+  $('#m-boot').style.left = pct(cap); $('#m-boot').style.width = pct(capAll - cap);
+  $('#m-dem-v').textContent = dem.toFixed(1) + X(' /s', ' req/s');
+  $('#m-cap-v').textContent = cap.toFixed(1) + (capAll > cap + 0.05 ? ` +${(capAll - cap).toFixed(1)}` : '') + X(' /s', ' req/s');
+}
+
+// ---------- HUD + inspector ----------
+function renderHud() {
+  if (!S) return;
+  const L = S.L, G = L.goal;
+  if (G.served != null) {
+    $('#goal-label').textContent = 'Served';
+    $('#goal-val').textContent = `${S.served} / ${G.served}`;
+    $('#goal-bar').style.width = Math.min(100, 100 * S.served / G.served) + '%';
+  } else {
+    $('#goal-label').textContent = L.rent ? 'Profit' : 'Survive';
+    $('#goal-val').textContent = L.rent ? Math.round(profit()) : fmtTime(Math.max(0, G.timeLimit - S.t));
+    $('#goal-bar').style.width = Math.min(100, 100 * S.t / G.timeLimit) + '%';
+  }
+  const co = $('#coins'); co.textContent = Math.round(S.coins); co.className = S.coins < 0 ? 'bad' : '';
+  const hp = happyPct(), hEl = $('#happy');
+  hEl.textContent = Math.round(hp * 100) + '%' + (G.maxAngry != null ? ` · ${S.angry}/${G.maxAngry}✕` : '');
+  hEl.className = hp < (G.happyMin || 0.6) ? 'bad' : '';
+  $('#time').textContent = fmtTime(Math.max(0, G.timeLimit - S.t));
+  for (const b of document.querySelectorAll('[data-speed]')) b.setAttribute('aria-pressed', String(+b.dataset.speed === S.speed));
+  renderCoach();
+
+  // banner
+  let ban = '';
+  for (const e of S.events) {
+    if (e.type === 'rush' && S.t >= e.at - 15 && S.t < e.at) ban = `${e.name} in ${Math.ceil(e.at - S.t)} s!`;
+    if (e.type === 'rush' && S.t >= e.at && S.t < e.at + e.dur) ban = `${e.name}! ${Math.ceil(e.at + e.dur - S.t)} s left`;
+  }
+  const fk = S.kitchens.find(k => k.state === 'fire');
+  if (fk) ban = X(`${kName(fk)} is on fire!`, `${fk.type} #${fk.id} down: node failure`);
+  $('#banner').hidden = !ban; $('#banner').textContent = ban;
+
+  // build buttons
+  for (const b of document.querySelectorAll('[data-build]')) b.disabled = serving().length >= L.lots || S.over;
+  $('#build-lots').textContent = `${serving().length} / ${L.lots} ${X('lots', 'GPUs')}`;
+
+  // inspector
+  if (!selected || !S.kitchens.includes(selected)) selected = S.kitchens.find(k => k.state === 'up') || S.kitchens[0] || null;
+  const k = selected;
+  $('#inspect').hidden = !k;
+  if (!k) return;
+  const T = TYPES[k.type];
+  $('#i-name').textContent = X(`${T.kid} ${k.id}`, `${k.type} #${k.id}`);
+  $('#i-gpu').textContent = X(T.gpu.split(' · ')[0].replace('NVIDIA ', '') + ' inside', T.gpu + (T.measured ? ' · measured' : ' · estimated'));
+  $('#i-burners').textContent = k.burners;
+  $('#b-plus').disabled = k.burners >= L.burnersMax || S.over;
+  $('#b-minus').disabled = k.burners <= (L.burnersMin || 1) || S.over;
+  $('#close-k').hidden = !L.build.length;
+  $('#i-hint').textContent = S.kitchens.length > 1 ? X('Click a kitchen to look inside', 'Click a GPU to inspect it') : '';
+  const last = k.last || { base: T.base, seq: 0, pre: 0, dt: T.base, n: 0, admitted: 0, finished: 0, preempted: 0, prefillTok: 0 };
+  const full = Math.max(0.08, last.dt);
+  $('#sb-base').style.width = (100 * last.base / full) + '%';
+  $('#sb-seq').style.width = (100 * last.seq / full) + '%';
+  $('#sb-pre').style.width = (100 * last.pre / full) + '%';
+  $('#i-tick').textContent = `${(last.dt * 1000).toFixed(1)} ms` + (L.slo.tpot ? X(` (limit ${L.slo.tpot * 1000})`, ` / SLO ${L.slo.tpot * 1000}`) : '');
+  $('#i-tick').style.color = L.slo.tpot && last.dt > L.slo.tpot ? C.bad : '';
+  $('#k1').textContent = `${k.run.length} / ${k.burners}`;
+  $('#k2').textContent = Math.round(k.tokRate).toLocaleString();
+  const kvPct = usedBlocks(k) / capBlocks(k);
+  $('#k3').textContent = X(`${Math.round(kvPct * 100)}%`, `${Math.round(kvPct * 100)}% · ${usedBlocks(k).toLocaleString()} blk`);
+  $('#k3').style.color = kvPct > 0.9 ? C.bad : '';
+  const tpot = last.n ? last.dt / Math.max(1, (last.made || last.n) / last.n) : 0;
+  $('#k4').textContent = k.run.length ? X(`1 bite / ${Math.round(tpot * 1000)} ms`, `${Math.round(tpot * 1000)} ms/tok · ${Math.round(1 / tpot)} tok/s/user`) : '-';
+  $('#k4').style.color = L.slo.tpot && tpot > L.slo.tpot ? C.bad : '';
+  $('#li-spec').hidden = !S.spec;
+  $('#lp-spec').textContent = S.spec && last.n ? `${(last.made / last.n).toFixed(1)} kept / 5` : '';
+  const hot = { admit: last.admitted > 0, prefill: last.prefillTok > 0, decode: last.n > 0, spec: S.spec && last.n > 0, finish: last.finished > 0, preempt: last.preempted > 0 };
+  for (const li of document.querySelectorAll('#loop li')) li.classList.toggle('hot', !!hot[li.dataset.p] && S.speed > 0);
+  $('#lp-admit').textContent = last.admitted ? `+${last.admitted}` : '';
+  $('#lp-prefill').textContent = last.prefillTok ? `${last.prefillTok.toLocaleString()} tok · ${(last.pre * 1000).toFixed(0)} ms` : '';
+  $('#lp-decode').textContent = last.n ? `${last.n} × ${S.spec ? '5 checked' : '1 tok'}` : '';
+  $('#lp-finish').textContent = last.finished ? `${last.finished} done` : '';
+  $('#lp-preempt').textContent = last.preempted ? `${last.preempted} bumped` : '';
+  $('#i-why').textContent = X(
+    `Every tick, the kitchen must walk through the whole cookbook (gray) no matter how many burners are lit. Each burner adds only a thin orange slice. That's why cooking for many at once is cheap.`,
+    `Why ${(T.base * 1000).toFixed(1)} ms? Each step streams ${T.weights}. ${T.measured ? 'Measured on the gpu-inference cluster: 28.8 tok/s single stream. ' : ''}Each extra sequence adds ~${(T.per * 1000).toFixed(2)} ms of KV reads. KV pool ≈ ${(T.kvTokens * (S.fp8kv ? 2 : 1) / 1000).toFixed(0)}k tokens (${capBlocks(k).toLocaleString()} blocks × 16).${L.rent ? ` Fleet cost ≈ $${costPerM().toFixed(2)} / 1M tokens.` : ''}`);
+}
+
+// ---------- canvas ----------
+function resize() {
+  DPR = Math.min(2, window.devicePixelRatio || 1);
+  VW = Math.floor(cv.parentElement.clientWidth);
+  VH = Math.round(Math.max(380, Math.min(560, VW * 0.62)));
+  cv.width = VW * DPR; cv.height = VH * DPR; cv.style.height = VH + 'px';
+  cx.setTransform(DPR, 0, 0, DPR, 0, 0);
+}
+function rr(x, y, w, h, r) { cx.beginPath(); cx.roundRect(x, y, w, h, r); }
+function txt(t, x, y, col, size = 12, weight = 800, align = 'left', fam = 'body') {
+  cx.fillStyle = col; cx.textAlign = align; cx.textBaseline = 'alphabetic';
+  cx.font = `${weight} ${size}px ${fam === 'mono' ? '"JetBrains Mono", monospace' : fam === 'display' ? '"Baloo 2", sans-serif' : '"Nunito", sans-serif'}`;
+  cx.fillText(t, x, y);
+}
+function face(x, y, r, hue, mood, angry) {
+  cx.fillStyle = `hsl(${hue} 70% ${xray ? 58 : 62}%)`;
+  cx.beginPath(); cx.arc(x, y, r, 0, 7); cx.fill();
+  if (r < 5) return;
+  cx.fillStyle = '#2a1c12';
+  cx.beginPath(); cx.arc(x - r * 0.33, y - r * 0.15, r * 0.12, 0, 7); cx.arc(x + r * 0.33, y - r * 0.15, r * 0.12, 0, 7); cx.fill();
+  cx.strokeStyle = '#2a1c12'; cx.lineWidth = Math.max(1, r * 0.13); cx.beginPath();
+  if (mood > 0.5) cx.arc(x, y + r * 0.1, r * 0.38, 0.15 * Math.PI, 0.85 * Math.PI);
+  else if (mood > 0.25) { cx.moveTo(x - r * 0.3, y + r * 0.38); cx.lineTo(x + r * 0.3, y + r * 0.38); }
+  else cx.arc(x, y + r * 0.62, r * 0.33, 1.15 * Math.PI, 1.85 * Math.PI);
+  cx.stroke();
+  if (angry) { cx.beginPath(); cx.moveTo(x - r * 0.55, y - r * 0.5); cx.lineTo(x - r * 0.15, y - r * 0.35); cx.moveTo(x + r * 0.55, y - r * 0.5); cx.lineTo(x + r * 0.15, y - r * 0.35); cx.stroke(); }
+}
+
+function layoutKitchens(n, x, y, w, h) {
+  let best = null;
+  for (let cols = 1; cols <= n; cols++) {
+    const rows = Math.ceil(n / cols), cw = w / cols, ch = h / rows;
+    const s = Math.min(cw, ch * 1.3);
+    if (!best || s > best.s) best = { cols, cw, ch, s };
+  }
+  return best;
+}
+
+function drawKitchen(k, x, y, w, h, tNow) {
+  const T = TYPES[k.type], sel = k === selected;
+  const tint = { L4: C.cool, A100: '#9b6bff', H100: C.accent }[k.type];
+  rr(x, y, w, h, 14); cx.fillStyle = C.panel; cx.fill();
+  cx.lineWidth = sel ? 3 : 2; cx.strokeStyle = sel ? C.accent : C.line; cx.stroke();
+  if (k.state === 'fire') { cx.globalAlpha = 0.25 + 0.2 * Math.sin(tNow * 10); rr(x, y, w, h, 14); cx.fillStyle = C.bad; cx.fill(); cx.globalAlpha = 1; }
+  const small = w < 170;
+  txt(X(T.kid, k.type) + ' ' + k.id, x + 12, y + 22, tint, small ? 13 : 16, 800, 'left', 'display');
+  hits.push({ x, y, w, h, fn: () => { selected = k; } });
+  // burner +/- on the card
+  if (k.state !== 'boot' && k.state !== 'fire' && !small && S.L.burnersMax > (S.L.burnersMin || 1)) {
+    const bw = 26, by = y + 7;
+    const bx2 = x + w - bw - 8, bx1 = bx2 - bw - 46;
+    for (const [bx, lab, dv] of [[bx1, '−', -1], [bx2, '+', 1]]) {
+      rr(bx, by, bw, 22, 7); cx.fillStyle = C['panel-2']; cx.fill();
+      cx.lineWidth = 2; cx.strokeStyle = (pulseTarget === (dv > 0 ? 'plus' : 'minus') && sel && Math.sin(tNow * 6) > 0) ? C.gold : C.line; cx.stroke();
+      txt(lab, bx + bw / 2, by + 17, C.fg, 18, 800, 'center', 'display');
+      hits.unshift({ x: bx, y: by, w: bw, h: 22, fn: () => { selected = k; setBurners(k, dv); } });
+    }
+    txt(String(k.burners), (bx1 + bw + bx2) / 2, by + 17, C.fg, 15, 800, 'center', 'display');
+  } else if (k.state === 'up') txt(`${k.run.length}/${k.burners}`, x + w - 10, y + 22, C.muted, 12, 700, 'right', 'mono');
+
+  if (k.state === 'boot') {
+    const p = 1 - k.boot / T.boot;
+    txt(X('Opening soon…', 'Cold start: pull image, load weights'), x + w / 2, y + h / 2 - 6, C.muted, 13, 800, 'center');
+    rr(x + 16, y + h / 2 + 4, w - 32, 10, 5); cx.fillStyle = C['panel-2']; cx.fill();
+    rr(x + 16, y + h / 2 + 4, (w - 32) * p, 10, 5); cx.fillStyle = C.good; cx.fill();
+    txt(`${Math.ceil(k.boot)} s`, x + w / 2, y + h / 2 + 32, C.muted, 12, 700, 'center', 'mono');
+    return;
+  }
+  if (k.state === 'fire') { txt(X('ON FIRE! Reopening…', 'Node down · requests re-queued'), x + w / 2, y + h / 2, C.bad, 15, 800, 'center', 'display'); txt(`${Math.ceil(k.fire)} s`, x + w / 2, y + h / 2 + 20, C.bad, 12, 700, 'center', 'mono'); return; }
+
+  // stove: burners
+  const stoveY = y + 32, fridgeH = small ? 10 : Math.max(26, h * 0.24), stoveH = h - 32 - fridgeH - 30;
+  const m = Math.min(k.burners, 64), per = k.burners / m;
+  const cols = Math.max(1, Math.ceil(Math.sqrt(m * (w - 20) / Math.max(10, stoveH))));
+  const rows = Math.ceil(m / cols);
+  const cell = Math.min((w - 20) / cols, stoveH / rows);
+  const rad = Math.max(2.5, cell * 0.42);
+  const lit = Math.ceil(k.run.length / per);
+  const tableLocked = S.static && k.run.length > 0;
+  for (let i = 0; i < m; i++) {
+    const cxp = x + 10 + (i % cols) * cell + cell / 2, cyp = stoveY + Math.floor(i / cols) * cell + cell / 2;
+    if (i < lit) {
+      const r = k.run[Math.min(k.run.length - 1, Math.floor(i * per))];
+      const flick = RM ? 1 : 0.85 + 0.15 * Math.sin(tNow * 14 + i);
+      cx.fillStyle = C.accent; cx.globalAlpha = 0.35 * flick;
+      cx.beginPath(); cx.arc(cxp, cyp, rad, 0, 7); cx.fill(); cx.globalAlpha = 1;
+      cx.fillStyle = `hsl(${r.hue} 70% 60%)`;
+      cx.beginPath(); cx.arc(cxp, cyp, rad * 0.62, 0, 7); cx.fill();
+      if (rad > 6) {
+        cx.strokeStyle = C.fg; cx.lineWidth = Math.max(1.5, rad * 0.16);
+        cx.beginPath(); cx.arc(cxp, cyp, rad * 0.86, -Math.PI / 2, -Math.PI / 2 + 2 * Math.PI * Math.min(1, r.gen / r.out)); cx.stroke();
+      }
+    } else {
+      cx.strokeStyle = C.line; cx.lineWidth = Math.max(1, rad * 0.2);
+      cx.beginPath(); cx.arc(cxp, cyp, rad * 0.8, 0, 7); cx.stroke();
+      if (tableLocked) {
+        cx.strokeStyle = C.bad; cx.globalAlpha = 0.65; cx.lineWidth = Math.max(1.5, rad * 0.18);
+        cx.beginPath(); cx.moveTo(cxp - rad * 0.4, cyp - rad * 0.4); cx.lineTo(cxp + rad * 0.4, cyp + rad * 0.4); cx.moveTo(cxp + rad * 0.4, cyp - rad * 0.4); cx.lineTo(cxp - rad * 0.4, cyp + rad * 0.4); cx.stroke();
+        cx.globalAlpha = 1;
+      }
+    }
+  }
+  // fridge: KV blocks, colored by owner; gold = shared prefix
+  const fy = y + h - fridgeH - 22, fx = x + 10, fw = w - 20;
+  const capB = capBlocks(k);
+  if (!small) txt(X('Fridge', 'KV cache'), fx, fy - 4, C.muted, 10, 800);
+  rr(fx, fy, fw, fridgeH, 6); cx.fillStyle = C['panel-2']; cx.fill();
+  const fcols = small ? 1 : Math.max(8, Math.floor(fw / 9)), frows = small ? 1 : Math.max(1, Math.floor(fridgeH / 9));
+  const cells = fcols * frows, perCell = capB / cells;
+  let pos = 0;
+  const paint = (blocks, col) => {
+    const end = Math.min(cells, pos + blocks / perCell);
+    cx.fillStyle = col;
+    if (small) { cx.fillRect(fx + fw * pos / cells, fy, fw * (end - pos) / cells, fridgeH); pos = end; return; }
+    for (let c = Math.floor(pos); c < Math.ceil(end); c++) {
+      const cw = fw / fcols, chh = fridgeH / frows;
+      cx.fillRect(fx + (c % fcols) * cw + 1, fy + Math.floor(c / fcols) * chh + 1, cw - 2, chh - 2);
+    }
+    pos = end;
+  };
+  if (S.prefix && k.run.some(r => r.shared)) paint(prefixBlocks, C.gold);
+  for (const r of k.run) paint(ownBlocks(r), `hsl(${r.hue} 65% 58%)`);
+  const fillPct = usedBlocks(k) / capB;
+  if (fillPct > 0.9) { cx.strokeStyle = C.bad; cx.lineWidth = 2; rr(fx, fy, fw, fridgeH, 6); cx.stroke(); }
+  // status
+  const last = k.last;
+  const status = k.state === 'drain' ? X('Closing after these plates', 'draining')
+    : last ? X(`${k.run.length} cooking · ${Math.round(k.tokRate)} bites/s`, `step ${k.step} · ${(last.dt * 1000).toFixed(1)} ms · ${last.n} seqs · KV ${Math.round(fillPct * 100)}%`)
+    : X('Waiting for customers', 'idle');
+  txt(status, x + 12, y + h - 7, C.muted, small ? 10 : 11, 700, 'left', xray ? 'mono' : 'body');
+  k.box = { x, y, w, h };
+}
+
+let lastFrame = performance.now(), hudAcc = 0;
+function frame(now) {
+  const dt = Math.min(0.1, (now - lastFrame) / 1000);
+  lastFrame = now;
+  if (S && S.speed > 0 && !S.over) {
+    let rem = dt * S.speed;
+    while (rem > 1e-6 && !S.over) { const d = Math.min(0.02, rem); simStep(d); rem -= d; }
+  }
+  if (S) draw(now / 1000, S.speed > 0 ? dt : 0);
+  if ((hudAcc += dt) > 0.1) { hudAcc = 0; renderHud(); }
+  requestAnimationFrame(frame);
+}
+
+function draw(tNow, vis) {
+  hits = [];
+  cx.fillStyle = C.floor; cx.fillRect(0, 0, VW, VH);
+  // floor tiles / schematic grid
+  cx.strokeStyle = C.line; cx.globalAlpha = xray ? 0.35 : 0.5; cx.lineWidth = 1;
+  const tile = xray ? 20 : 40;
+  for (let gx = 0; gx < VW; gx += tile) { cx.beginPath(); cx.moveTo(gx + 0.5, 0); cx.lineTo(gx + 0.5, VH); cx.stroke(); }
+  for (let gy = 0; gy < VH; gy += tile) { cx.beginPath(); cx.moveTo(0, gy + 0.5); cx.lineTo(VW, gy + 0.5); cx.stroke(); }
+  cx.globalAlpha = 1;
+
+  const narrow = VW < 600;
+  const lineW = Math.max(96, VW * (narrow ? 0.24 : 0.2));
+  // the line
+  rr(8, 8, lineW - 12, VH - 16, 14); cx.fillStyle = C.panel; cx.globalAlpha = 0.6; cx.fill(); cx.globalAlpha = 1;
+  txt(X('THE LINE', 'REQUEST QUEUE'), 18, 28, C.muted, 11, 800);
+  const waiting = S.queue;
+  txt(`${waiting.length} ${X('waiting', 'queued')}`, 18, 46, waiting.length > 10 ? C.bad : C.fg, 15, 800, 'left', 'display');
+  const r0 = narrow ? 8 : 10, sp = r0 * 2 + 6;
+  const qcols = Math.max(1, Math.floor((lineW - 24) / sp)), qrows = Math.max(1, Math.floor((VH - 80) / sp));
+  const shown = Math.min(waiting.length, qcols * qrows);
+  for (let i = 0; i < shown; i++) {
+    const r = waiting[i];
+    const px = 18 + r0 + (i % qcols) * sp, py = VH - 20 - r0 - Math.floor(i / qcols) * sp;
+    const p = r.tFirst !== null ? 0.6 : 1 - (S.t - r.t0) / S.L.patience;
+    const rad = r.giant ? r0 * 1.5 : r.shared ? r0 * 1.15 : r0;
+    face(px, py, rad, r.hue, p, p < 0.25);
+    cx.strokeStyle = p > 0.5 ? C.good : p > 0.25 ? C.gold : C.bad; cx.lineWidth = 2.5;
+    cx.beginPath(); cx.arc(px, py, rad + 3, -Math.PI / 2, -Math.PI / 2 + 2 * Math.PI * Math.max(0, p)); cx.stroke();
+    if (r.bumped && rad > 6) txt('!', px + rad, py - rad, C.bad, 12, 800, 'center');
+  }
+  if (waiting.length > shown) txt(`+${waiting.length - shown} more`, 18, 64, C.bad, 12, 800);
+
+  // kitchens + empty lots
+  const kx = lineW + 6, kw = VW - kx - 8, ky = 8, kh = VH - 16;
+  const nSlots = Math.max(S.kitchens.length, S.L.build.length ? Math.min(S.L.lots, S.kitchens.length + 1) : S.kitchens.length);
+  const Lo = layoutKitchens(nSlots, kx, ky, kw, kh), gap = 8;
+  S.kitchens.forEach((k, i) => {
+    const x = kx + (i % Lo.cols) * Lo.cw, y = ky + Math.floor(i / Lo.cols) * Lo.ch;
+    drawKitchen(k, x, y, Lo.cw - gap, Lo.ch - gap, tNow);
+    // coin floats from earnings
+    k.earnT = (k.earnT || 0) + vis;
+    if (k.earnT > 1 && k.earn > 0.05) { floats.push({ x: x + (Lo.cw - gap) * 0.75, y: y + 40, text: `+${k.earn.toFixed(k.earn < 10 ? 1 : 0)}`, col: C.gold, life: 0, size: 15, coin: true }); k.earn = 0; k.earnT = 0; }
+    else if (k.earnT > 1) k.earnT = 0;
+  });
+  if (nSlots > S.kitchens.length && serving().length < S.L.lots) {
+    const i = S.kitchens.length, x = kx + (i % Lo.cols) * Lo.cw, y = ky + Math.floor(i / Lo.cols) * Lo.ch, w = Lo.cw - gap, h = Lo.ch - gap;
+    cx.setLineDash([8, 6]); rr(x, y, w, h, 14); cx.strokeStyle = C.line; cx.lineWidth = 2; cx.stroke(); cx.setLineDash([]);
+    txt(X('Empty lot', 'Free capacity slot'), x + w / 2, y + h / 2 - 4, C.muted, 15, 800, 'center', 'display');
+    txt(X('Open a kitchen from the panel', 'Add a GPU from the panel'), x + w / 2, y + h / 2 + 16, C.muted, 12, 700, 'center');
+  }
+
+  // happy customers walking out, angry floats, coins
+  for (let i = leavers.length - 1; i >= 0; i--) {
+    const l = leavers[i]; l.life += vis * 0.9;
+    if (l.life >= 1) { leavers.splice(i, 1); continue; }
+    cx.globalAlpha = 1 - l.life;
+    face(l.x + l.life * 60, l.y - l.life * 50, l.big ? 11 : 8, l.hue, l.happy ? 1 : 0.1, !l.happy);
+  }
+  cx.globalAlpha = 1;
+  for (let i = floats.length - 1; i >= 0; i--) {
+    const f = floats[i]; f.life += vis * 0.8;
+    if (f.life >= 1) { floats.splice(i, 1); continue; }
+    cx.globalAlpha = 1 - f.life * f.life;
+    const fy = f.y - (RM ? 0 : f.life * 34);
+    if (f.coin) { cx.fillStyle = C.gold; cx.beginPath(); cx.arc(f.x - 14, fy - 5, 6, 0, 7); cx.fill(); }
+    txt(f.text, f.x, fy, f.col, f.size, 800, f.coin ? 'left' : 'center', 'display');
+  }
+  cx.globalAlpha = 1;
+  if (S.speed === 0 && !S.over && $('#overlay').hidden) txt(X('Paused · press Space', 'paused'), VW / 2, VH - 14, C.accent, 14, 800, 'center', 'display');
+  if (S.speed > 0 && S.speed < 0.2) txt(X('SLOW MOTION: watch each tick', 'slow-mo: one decode step at a time'), kx + kw / 2, VH - 14, C.cool, 13, 800, 'center', 'display');
+}
+
+readColors();
+relabel();
+renderMenu();
+startLevel(LEVELS[0]);
+selected = S.kitchens[0];
+resize();
+addEventListener('resize', resize);
+renderHud();
+showModal('m-menu');
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
