@@ -351,7 +351,7 @@
   function zap() {
     if (loaded == null) return;
     const v = vis.get(loaded); if (!v) { loaded = null; return; }
-    if (Sim.shed(S, v.id)) { burst(v.c.x, v.c.y, C.cool, 8); floatText(eng ? 'cancelled' : 'zapped', v.c.x, v.c.y - 20, C.cool, 12); removeCapsule(v.id); }
+    if (Sim.shed(S, v.id)) { burst(v.c.x, v.c.y, C.cool, 8); floatText(eng ? 'cancelled' : 'turned away', v.c.x, v.c.y - 20, C.cool, 12); removeCapsule(v.id); }
   }
   app.stage.on('pointermove', e => { pointer.x = e.global.x; pointer.y = e.global.y; aim.usePointer = true; });
   app.stage.on('pointerdown', e => {
@@ -461,7 +461,7 @@
         const r = reqById(f.id); if (!r) continue;
         const g = machineGeom(f.machine); const v = makeCapsule(r);
         v.state = 'flying'; v.tween = { x0: g.x + 40, y0: g.y + g.h - 30, x1: laneX(r), y1: v.y, t: 0, dur: 0.4, then: () => { v.state = 'lane'; } };
-        floatText(eng ? 'preempted (KV)' : 'POPPED OUT', g.x + 60, g.y + g.h - 40, C.bad, 13); shake(4);
+        floatText(eng ? 'preempted (KV)' : 'PUSHED OFF', g.x + 60, g.y + g.h - 40, C.bad, 13); shake(4);
       }
       else if (f.kind === 'admit') { if (f.cold) { const g = machineGeom(f.machine); floatText(eng ? `cold prefill ${(f.prefill * 1000).toFixed(0)} ms` : 'cold read!', g.wheel.x, g.wheel.y - g.wheel.r - 16, C.cool, 12); } }
       else if (f.kind === 'warn') { floatText(`${f.event.name} in 15 s!`, G.W * 0.42, 60, C.bad, 20); }
@@ -477,13 +477,13 @@
     const L = S.L, waiting = S.queue.filter(r => r.phase === 'lane').length;
     if (L.tutorial) {
       const m = S.machines[0], seated = m.run.length + m.pending.length;
-      if (S.delivered + seated === 0) return ['Step 1 · shoot', 'The capsule in your cannon is one request. Point at "rail 1" on the machine and click (or press Space).'];
-      if (S.delivered === 0) return ['Step 2 · watch', 'It rides its track while the wheel turns. One turn = one token for every busy track. The sparks on the right are the reply.'];
-      if (m.rails < 4 && waiting < 2) return ['Step 3 · more rails', 'Press + under the machine (or the + key) until it has 4 rails. Watch the turn time: it barely changes.'];
-      if (m.rails < 4) return ['Step 3 · more rails', 'Capsules are piling up. Add rails with + until there are 4. Each rail is one more request served at once.'];
+      if (S.delivered + seated === 0) return ['Step 1 · shoot', 'The capsule in your cannon is a person asking a question. Point at "rail 1" (a seat on the machine) and click, or press Space.'];
+      if (S.delivered === 0) return ['Step 2 · watch', 'They sit on their rail while the wheel turns. Every turn gives every seated person one word. The sparks on the right are the reply.'];
+      if (m.rails < 4 && waiting < 2) return ['Step 3 · more seats', 'Press + under the machine (or the + key) until it has 4 rails. Watch the time per turn: it barely changes. More seats, same wheel.'];
+      if (m.rails < 4) return ['Step 3 · more seats', 'People are piling up. Add rails with + until there are 4. Each rail is one more person served at once.'];
       if (!eng && S.delivered < 6) return ['Step 4 · X-ray', 'Press X. Every piece turns into its real engine name, and the panel below shows the metrics. Press X again to go back.'];
-      if (loaded != null && waiting >= 2) return ['Step 5 · choose', 'You can click any capsule in the lane to load that one instead of the most urgent. Try it.'];
-      return ['Training', `${S.delivered} of 10 delivered. Right-click or Z throws a loaded capsule away (sheds it). Level 1 is this with a clock.`];
+      if (loaded != null && waiting >= 2) return ['Step 5 · choose', 'The most impatient person loads first. Click any other capsule in the lane to load them instead. Try it.'];
+      return ['Training', `${S.delivered} of 10 delivered. Right-click or Z turns the loaded person away on purpose. Level 1 is this with a clock.`];
     }
     const m0 = S.machines[0];
     const rush = S.events.find(e => e.kind === 'rush' && S.t >= e.at - 15 && S.t < e.at);
@@ -495,7 +495,7 @@
     if (L.id === 3 && rush) return [`${rush.name} in ${Math.ceil(rush.at - S.t)} s`, 'Keep both machines fed. Same colour to the same machine, so the reader stays warm. Click a capsule in the lane to load it instead of the urgent one.'];
     if (L.id === 3 && S.machines.some(m => m.run.some(r => r.cold && r.tFirst === null))) return ['Cold read', 'The reader is grinding through a new colour (16k tokens). Send the same colour to the same machine next time: it is almost free when warm.'];
     if (waiting >= 4 && anyFree) return ['Capsules waiting', 'Tracks are open. Shoot fast: rings are running out.'];
-    if (waiting >= 4 && !anyFree) return ['Everything full', 'No track free. Zap the loaded capsule (right-click or Z) to shed it instead of letting it time out.'];
+    if (waiting >= 4 && !anyFree) return ['Everything full', 'No seat free. Turn the loaded person away (right-click or Z): better one turned away than five who give up.'];
     if (S.combo >= 10) return [`Combo ×${(1 + 0.25 * Math.floor(S.combo / 5)).toFixed(2)}`, 'Every on-time reply multiplies the coins. Keep the streak.'];
     return ['Looking good', L.id === 1 ? 'Each request rides its track while the wheel stamps its reply, one token per turn.' : 'Keep the tracks fed and the rings green.'];
   }
@@ -593,7 +593,7 @@
   }
 
   // ---------- flow ----------
-  function showModal(id) { $('#overlay').hidden = false; for (const m of ['m-menu', 'm-intro', 'm-end']) $('#' + m).hidden = m !== id; const f = $('#' + id).querySelector('button:not([hidden])'); f && f.focus(); }
+  function showModal(id) { $('#overlay').hidden = false; for (const m of ['m-menu', 'm-intro', 'm-end', 'm-story']) $('#' + m).hidden = m !== id; const f = $('#' + id).querySelector('button:not([hidden])'); f && f.focus(); }
   function unlocked(i) { const L = Sim.LEVELS[i]; return L.tutorial || i === 0 || L.endless ? (L.tutorial || i === 0 || (best[1] || 0) > 0) : (best[Sim.LEVELS[i - 1].id] || 0) > 0 || (best[L.id] || 0) > 0; }
   function renderMenu() {
     const order = Sim.LEVELS.map((L, i) => i).sort((a, b) => (Sim.LEVELS[b].tutorial ? 1 : 0) - (Sim.LEVELS[a].tutorial ? 1 : 0));   // training first
@@ -657,6 +657,8 @@
     if (b.id === 'end-retry') openIntro(levelIdx);
     if (b.id === 'end-next') openIntro(S && S.L.tutorial ? 0 : levelIdx + 1);
     if (b.id === 'results') endLevel();
+    if (b.id === 'story') showModal('m-story');
+    if (b.id === 'story-back') { renderMenu(); showModal('m-menu'); }
     if (b.id === 'pause') togglePause();
     if (b.id === 'xray') { eng = !eng; relabel(); }
     if (b.id === 'resume') { $('#overlay').hidden = true; paused = false; $('#pause').setAttribute('aria-pressed', 'false'); $('#paused').hidden = true; }

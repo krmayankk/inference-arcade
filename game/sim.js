@@ -72,7 +72,7 @@
     },
     {
       id: 'T', name: 'Training shift', tutorial: true,
-      brief: 'No clock, no one gives up. Capsules trickle in; the coach walks you through the cannon, the wheel, the rails and the X-ray. Take your time.',
+      brief: 'A machine makes replies for people, one word at a time. Each capsule is a person asking a question; your cannon seats them on the machine. No clock here and no one gives up: the coach walks you through the cannon, the wheel, the seats and the X-ray.',
       goalText: 'Deliver 10 replies at your own pace. Nothing can go wrong here.',
       learn: 'You shot requests onto rails, added rails, and saw that the wheel barely slows. Level 1 is the same with a clock.',
       machines: [{ type: 'L4', rails: 2 }], railsMax: 8, levers: ['rails'],
