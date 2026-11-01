@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Tokenworks</title>
+<meta name="description" content="Pilot the dispatcher: catch requests, fire them into GPU rails, keep the wheel turning. An arcade game that is an honest picture of LLM inference.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Nunito:wght@600;800&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+  :root { --bg: #0c1424; --panel: #13213a; --panel-2: #182a48; --line: #27406a; --fg: #e3ecff; --muted: #8ea3c9; --accent: #ff9a5c; --gold: #ffd166; --good: #4ade80; --bad: #ff6b6b; --cool: #6cc4ff; color-scheme: dark; }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  html, body { height: 100%; background: var(--bg); color: var(--fg); }
+  body { margin: 0; font: 14px/1.4 Nunito, system-ui, sans-serif; padding-left: max(10px, env(safe-area-inset-left, 0px)); padding-right: max(10px, env(safe-area-inset-right, 0px)); padding-block: 8px 10px; display: flex; flex-direction: column; gap: 8px; }
+  button { font-family: inherit; }
+  .top { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; }
+  .brand { display: flex; align-items: baseline; gap: 10px; margin-right: auto; }
+  .brand h1 { margin: 0; font-size: 22px; line-height: 1; }
+  .brand h1 span { color: var(--accent); }
+  .brand small { color: var(--muted); font-weight: 800; }
+  .stats { display: flex; flex-wrap: wrap; gap: 6px; }
+  .stat { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 3px 10px; display: flex; flex-direction: column; min-width: 74px; }
+  .stat small { font-size: 10px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); font-weight: 800; }
+  .stat b { font-size: 17px; line-height: 1.15; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .stat b.bad { color: var(--bad); }
+  .stat b.hot { color: var(--accent); }
+  .ctl { display: flex; gap: 6px; flex-wrap: wrap; }
+  .btn { font-weight: 800; font-size: 13px; background: var(--panel-2); color: var(--fg); border: 1px solid var(--line); border-radius: 8px; padding: 5px 11px; cursor: pointer; }
+  .btn:hover:not(:disabled) { border-color: var(--accent); }
+  .btn:focus-visible { outline: 2px solid var(--cool); outline-offset: 2px; }
+  .btn[aria-pressed="true"] { background: var(--cool); border-color: var(--cool); color: #0c1424; }
+  .btn:disabled { opacity: .4; cursor: not-allowed; }
+  .btn.sm { padding: 2px 0; width: 28px; font-size: 16px; line-height: 1.2; }
+  .btn.big { background: var(--accent); border-color: var(--accent); color: #0c1424; font-size: 16px; padding: 9px 20px; }
+  .btn.ok { border-color: var(--good); color: var(--good); }
+  .btn.danger { border-color: var(--bad); color: var(--bad); }
+  .coach { display: flex; align-items: baseline; gap: 10px; background: var(--panel); border: 1px solid var(--line); border-left: 4px solid var(--cool); border-radius: 10px; padding: 6px 12px; min-height: 36px; }
+  .coach b { color: var(--cool); font-size: 11px; text-transform: uppercase; letter-spacing: .08em; white-space: nowrap; }
+  .coach span { font-weight: 600; }
+  #stage { position: relative; flex: 1; min-height: 360px; border: 1px solid var(--line); border-radius: 14px; overflow: hidden; touch-action: none; }
+  #stage canvas { display: block; }
+  #paused { position: absolute; inset: 0; display: grid; place-items: center; background: rgba(12, 20, 36, .55); font-size: 28px; font-weight: 800; pointer-events: none; }
+  .bottom { display: flex; flex-wrap: wrap; gap: 6px 16px; align-items: center; }
+  #levers { display: flex; flex-wrap: wrap; gap: 6px 16px; }
+  .machine-lv { display: flex; align-items: center; gap: 8px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 4px 10px; }
+  .lv { display: inline-flex; align-items: center; gap: 4px; }
+  .lv span { color: var(--muted); font-weight: 800; font-size: 12px; }
+  .lv b { min-width: 22px; text-align: center; font-variant-numeric: tabular-nums; }
+  .lv.locked { color: var(--muted); font-size: 12px; font-weight: 800; }
+  #legend { font: 11px/1.4 "JetBrains Mono", monospace; color: var(--muted); }
+  .keys { color: var(--muted); font-size: 11px; margin-left: auto; }
+  .overlay { position: fixed; inset: 0; z-index: 20; display: grid; place-items: center; padding: 14px; background: rgba(6, 10, 20, .7); backdrop-filter: blur(4px); }
+  .modal { width: min(620px, 100%); max-height: 100%; overflow: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 22px; display: flex; flex-direction: column; gap: 12px; }
+  .modal h2 { margin: 0; font-size: 30px; line-height: 1.05; text-wrap: balance; }
+  .modal h2 span { color: var(--accent); }
+  .modal p { margin: 0; max-width: 62ch; }
+  .modal .sub { color: var(--muted); font-weight: 800; }
+  .levels { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+  .btn.level { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 10px 12px; text-align: left; min-height: 78px; }
+  .btn.level small { color: var(--muted); font-size: 11px; }
+  .btn.level .stars { color: var(--gold); letter-spacing: 2px; }
+  .learn { background: var(--panel-2); border-radius: 10px; padding: 9px 12px; }
+  .learn small { display: block; color: var(--muted); font-size: 10px; text-transform: uppercase; letter-spacing: .1em; font-weight: 800; margin-bottom: 2px; }
+  .bigstars { font-size: 40px; letter-spacing: 6px; color: var(--gold); line-height: 1; }
+  .bigstars .off { color: var(--line); }
+  .res { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+  .res div { background: var(--panel-2); border-radius: 8px; padding: 5px 10px; display: flex; flex-direction: column; }
+  .res small { color: var(--muted); font-size: 10px; text-transform: uppercase; letter-spacing: .08em; font-weight: 800; }
+  .res b { font-size: 17px; }
+  .actions { display: flex; flex-wrap: wrap; gap: 8px; }
+  .why { color: var(--bad); font-weight: 800; }
+  .foot { color: var(--muted); font-size: 11px; }
+  .foot a { color: var(--cool); }
+  @media (max-width: 700px) { .keys { display: none; } .stat { min-width: 64px; } }
+</style>
+</head>
+<body>
+<header class="top">
+  <div class="brand"><h1>Token<span>works</span></h1><small id="h-level">Level 1</small></div>
+  <div class="stats">
+    <div class="stat"><small id="h-goal-l">delivered</small><b id="h-goal">0 / 20</b></div>
+    <div class="stat"><small id="h-slo-l">on time</small><b id="h-slo">100%</b></div>
+    <div class="stat"><small>timeouts</small><b id="h-to">0 / 6</b></div>
+    <div class="stat"><small>time</small><b id="h-time">1:40</b></div>
+    <div class="stat"><small>score</small><b id="h-score">0</b></div>
+    <div class="stat"><small>combo</small><b id="h-combo">×1</b></div>
+  </div>
+  <div class="ctl">
+    <button class="btn" id="pause" aria-pressed="false">Pause</button>
+    <button class="btn" id="xray" aria-pressed="false" title="Engineering labels (X)">X-ray</button>
+    <button class="btn" id="menu">Levels</button>
+  </div>
+</header>
+<div class="coach"><b id="coach-tag">Coach</b><span id="coach-text">Pick a level.</span></div>
+<div id="stage"><div id="paused" hidden>PAUSED</div></div>
+<div class="bottom">
+  <div id="levers"></div>
+  <span class="keys">aim with the mouse · click / Space shoot · click a capsule to load it · 1 / 2 auto-shoot to machine · Z zap · + − rails · C batch lever · P pause · X labels</span>
+</div>
+<div id="legend"></div>
+<p class="foot">The L4 machine turns at the speed measured on <a href="https://github.com/krmayankk/gpu-inference" target="_blank" rel="noopener">gpu-inference</a> (Qwen2.5-Coder-7B FP8 on one NVIDIA L4: 28.8 tokens/s single-stream). Part of <a href="../">Inference Arcade</a>.</p>
+
+<div class="overlay" id="overlay">
+  <div class="modal" id="m-menu">
+    <h2>Token<span>works</span></h2>
+    <p>Every AI reply is cooked by a GPU one token at a time. You run the dispatcher cannon: shoot incoming requests onto the machines' rails before their patience runs out.</p>
+    <p class="sub">The most urgent capsule loads itself. Point at a track on a machine and click to shoot. Press X any time for the engineering labels.</p>
+    <div class="levels" id="levels"></div>
+    <div class="actions"><button class="btn" id="resume">Resume</button></div>
+  </div>
+  <div class="modal" id="m-intro" hidden>
+    <p class="sub" id="intro-num">Level 1</p>
+    <h2 id="intro-title"></h2>
+    <p id="intro-text"></p>
+    <div class="learn"><small>Goal</small><span id="intro-goal"></span></div>
+    <div class="actions"><button class="btn big" id="go">Start</button><button class="btn" id="intro-back">Levels</button></div>
+  </div>
+  <div class="modal" id="m-end" hidden>
+    <p class="sub" id="end-sub"></p>
+    <h2 id="end-title"></h2>
+    <div class="bigstars" id="end-stars"></div>
+    <p class="why" id="end-why"></p>
+    <div class="res" id="end-res"></div>
+    <div class="learn" id="end-learn-box"><small>What this was</small><span id="end-learn"></span></div>
+    <div class="actions"><button class="btn big" id="end-next">Next level</button><button class="btn" id="end-retry">Try again</button><button class="btn" id="end-menu">Levels</button></div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pixi.js/7.4.2/pixi.min.js"></script>
+<script src="sim.js?v=4"></script>
+<script>
+  // ?bot=1 lets a bot play (demo mode); also the headless screenshot driver used by sim/headless.
+  if (new URLSearchParams(location.search).has('bot')) document.write('<script src="../sim/headless/bot.js"><\/script>');
+</script>
+<script src="main.js?v=4"></script>
+</body>
+</html>
