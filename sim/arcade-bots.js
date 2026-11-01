@@ -21,17 +21,21 @@ function dispatcher(pick, react = 0.6) {
 }
 const random = dispatcher((S, r) => Math.floor(Math.random() * S.machines.length));
 const roundRobin = (() => { let i = 0; return dispatcher((S, r) => (i++) % S.machines.length); })();
-// Intended for level 3: same colour → the machine already warm for it; else the emptier machine.
+// Intended for level 3: same colour → the machine already warm for it. A new colour goes to a machine
+// that is not mid cold-read and holds the fewest prefixes; plain capsules go to the emptiest machine.
 const affinity = dispatcher((S, r) => {
   const free = m => m.rails - m.run.length - m.pending.length;
+  const stalled = m => m.run.some(x => x.cold && x.tFirst === null);
+  const open = S.machines.filter(m => free(m) > 0);
+  if (!open.length) return null;
   if (r.shared) {
-    const warm = S.machines.filter(m => Sim.isWarm(S, m, r.family) && free(m) > 0);
+    const warm = open.filter(m => Sim.isWarm(S, m, r.family));
     if (warm.length) return warm[0].id;
-    const cold = S.machines.filter(m => !Object.keys(m.warm).some(f => Sim.isWarm(S, m, +f)) && free(m) > 0);
-    if (cold.length) return cold[0].id;
+    const calm = open.filter(m => !stalled(m));
+    return (calm.length ? calm : open).slice().sort((a, b) => Object.keys(a.warm).length - Object.keys(b.warm).length || free(b) - free(a))[0].id;
   }
-  const best = S.machines.slice().sort((a, b) => free(b) - free(a))[0];
-  return free(best) > 0 ? best.id : null;
+  const calm = open.filter(m => !stalled(m));
+  return (calm.length ? calm : open).slice().sort((a, b) => free(b) - free(a))[0].id;
 });
 
 function run(levelIdx, label, setup, policy, tick) {

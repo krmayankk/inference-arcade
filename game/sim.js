@@ -12,13 +12,17 @@
   'use strict';
 
   const BLOCK = 16;
+  // Every number says where it came from: measured = gpu-inference Phase 1 on EKS (L4, Qwen2.5-Coder-7B
+  // FP8); estimated = bandwidth/compute ratio, to be replaced by the Phase 6 calibration sweep.
   const GPU = {
-    L4:   { name: 'NVIDIA L4 · 24 GB',   base: 0.0347, per: 0.00040, prefill: 5000,  kvTokens: 210000,  boot: 12, usd: 0.98, measured: true },
-    A100: { name: 'NVIDIA A100 · 80 GB', base: 0.0100, per: 0.00008, prefill: 11000, kvTokens: 1100000, boot: 15, usd: 4.10 },
-    H100: { name: 'NVIDIA H100 · 80 GB', base: 0.0050, per: 0.00004, prefill: 35000, kvTokens: 1100000, boot: 15, usd: 6.90 },
+    L4:   { name: 'NVIDIA L4 · 24 GB',   base: 0.0347, per: 0.00040, prefill: 5000,  kvTokens: 210000,  boot: 12, usd: 0.98,
+            measured: { base: true, per: false, prefill: false, kvTokens: false, boot: false, usd: true } },
+    A100: { name: 'NVIDIA A100 · 80 GB', base: 0.0100, per: 0.00008, prefill: 11000, kvTokens: 1100000, boot: 15, usd: 4.10, measured: {} },
+    H100: { name: 'NVIDIA H100 · 80 GB', base: 0.0050, per: 0.00004, prefill: 35000, kvTokens: 1100000, boot: 15, usd: 6.90, measured: {} },
   };
   const COIN_PER_TOKEN = 0.02;
-  const PREFIX_TTL = 25;          // seconds a family's prefix stays cached after its last use
+  // Prefix cache: a family's shared prefix stays in the tank until the tank needs the blocks, then the
+  // least recently used unused prefix goes first (vLLM's block manager is LRU; there is no timer).
   const BATCH_WINDOW = 1.5;       // static batching: seconds the batch stays open to collect sequences
   const FAMILY_NAMES = ['Blue', 'Rose', 'Lime', 'Gold'];
 
@@ -49,15 +53,15 @@
     },
     {
       id: 3, name: 'Two machines',
-      brief: 'Two machines, three colours. The urgent capsule loads itself, but you can click any capsule in the lane to load it instead. Capsules with a long ribbon carry a big shared prompt: the first of its colour makes the reader grind, ' +
-             'the next ones of the same colour on the same machine are nearly free. Route by colour, and spread the load. A rush is coming.',
-      goalText: 'Deliver 50 replies with at least 75% on time. 8 timeouts and the shift is over.',
+      brief: 'Two machines, three colours at a time, and the colours keep changing. The urgent capsule loads itself, but you can click any capsule in the lane to load it instead. ' +
+             'A long ribbon is a big shared prompt: the first of its colour makes the reader grind, the next ones of the same colour on the same machine are nearly free. Route by colour, and spread the load. A rush is coming.',
+      goalText: 'Deliver 50 replies with at least 70% on time. 8 timeouts and the shift is over.',
       learn: 'Routing is a lever. Sending requests that share a prefix to the same GPU hits its prefix cache (no re-read, less memory). That is prefix-aware routing, the heart of modern inference routers.',
       machines: [{ type: 'L4', rails: 8 }, { type: 'L4', rails: 8 }], railsMax: 12, levers: ['rails'],
-      patience: 5, slo: { ttft: 2.5 }, families: 3, shared: 0.8, sharedTokens: 16000,
+      patience: 5, slo: { ttft: 2.5 }, families: 3, familyChurn: 18, shared: 0.8, sharedTokens: 16000,
       prompt: [60, 300], out: [40, 160],
       rate: t => 1.2, events: [{ kind: 'rush', at: 50, dur: 15, mult: 1.6, name: 'Rush hour' }],
-      goal: { deliver: 50, timeLimit: 120, maxTimeouts: 8, sloMin: 0.75 }, stars: [0.82, 0.9],
+      goal: { deliver: 50, timeLimit: 120, maxTimeouts: 8, sloMin: 0.7 }, stars: [0.78, 0.85],
     },
     {
       id: 0, name: 'Endless', endless: true,
@@ -65,7 +69,7 @@
       goalText: 'Score as much as you can. 8 timeouts ends the run.',
       learn: '',
       machines: [{ type: 'L4', rails: 8 }, { type: 'L4', rails: 8 }], railsMax: 12, levers: ['rails', 'mode'],
-      patience: 5, slo: { ttft: 2.5 }, families: 3, shared: 0.5, sharedTokens: 6000,
+      patience: 5, slo: { ttft: 2.5 }, families: 3, familyChurn: 20, shared: 0.5, sharedTokens: 6000,
       prompt: [60, 300], out: [40, 200],
       rate: t => 0.8 + t / 45, events: [],
       goal: { timeLimit: 1e9, maxTimeouts: 8 }, stars: [0, 0],
@@ -80,7 +84,8 @@
     const S = {
       L, levelIdx, t: 0, over: false, win: false, why: '',
       score: 0, coins: 0, goodput: 0, combo: 0, bestCombo: 0,
-      delivered: 0, inSlo: 0, timeouts: 0, shed: 0, preempted: 0, bounces: 0,
+      delivered: 0, inSlo: 0, timeouts: 0, shed: 0, preempted: 0, evictions: 0, bounces: 0,
+      prefixQueries: 0, prefixHits: 0, usd: 0,                      // rent: Σ machine $/h × game hours
       queue: [], machines: [], seq: 0, nextArr: 0.8, rate: 0, rush: null,
       events: L.events.map(e => Object.assign({ warned: false }, e)),
       fx: [], modeUnlocked: !L.levers.includes('mode') ? true : L.modeUnlockAt == null,
@@ -101,7 +106,10 @@
   // ---------- requests ----------
   function spawn(S) {
     const L = S.L, id = ++S.seq;
-    const family = Math.floor(Math.random() * L.families);
+    // family = prefix identity (its colour is family % 4). With familyChurn, one family retires and a new
+    // one arrives every churn seconds: real traffic rotates prompts, so each new prefix costs a cold read.
+    const shift = L.familyChurn ? Math.floor(S.t / L.familyChurn) : 0;
+    const family = shift + Math.floor(Math.random() * L.families);
     const shared = Math.random() < L.shared;
     const own = Math.round(rnd(L.prompt[0], L.prompt[1]));
     S.queue.push({
@@ -114,14 +122,36 @@
 
   const capBlocks = m => Math.floor(GPU[m.type].kvTokens / BLOCK);
   const ownBlocks = (S, r, m) => Math.ceil(((r.shared && m.warm[r.family]) ? r.own : r.prompt) + r.gen) / BLOCK;
+  const prefixBlocks = S => Math.ceil(S.L.sharedTokens / BLOCK);
   function usedBlocks(S, m) {
     let u = 0;
-    const fam = {};
-    for (const r of m.run.concat(m.pending)) { u += ownBlocks(S, r, m); if (r.shared) fam[r.family] = 1; }
-    for (const f in m.warm) if (m.warm[f] && (fam[f] || S.t - m.warm[f] < PREFIX_TTL)) u += Math.ceil(S.L.sharedTokens / BLOCK);
+    for (const r of m.run.concat(m.pending)) u += ownBlocks(S, r, m);
+    for (const f in m.warm) u += prefixBlocks(S);
     return u;
   }
-  const isWarm = (S, m, family) => !!m.warm[family] && S.t - m.warm[family] < PREFIX_TTL;
+  const isWarm = (S, m, family) => !!m.warm[family];
+  // Blocks the tank could free by evicting cached prefixes nobody on the machine is using.
+  function evictable(S, m) {
+    const inUse = {};
+    for (const r of m.run.concat(m.pending)) if (r.shared) inUse[r.family] = 1;
+    let n = 0; for (const f in m.warm) if (!inUse[f]) n++;
+    return n * prefixBlocks(S);
+  }
+  // KV pressure, in vLLM's order: evict LRU unused prefixes first, then preempt the newest sequence.
+  function relieve(S, m) {
+    while (usedBlocks(S, m) > capBlocks(m)) {
+      const inUse = {};
+      for (const r of m.run.concat(m.pending)) if (r.shared) inUse[r.family] = 1;
+      let lru = null;
+      for (const f in m.warm) if (!inUse[f] && (lru === null || m.warm[f] < m.warm[lru])) lru = f;
+      if (lru !== null) { delete m.warm[lru]; S.evictions++; S.fx.push({ kind: 'evict', machine: m.id, family: +lru }); continue; }
+      if (m.run.length <= 1) break;
+      const r = m.run.pop();
+      r.phase = 'lane'; r.machine = null; r.preempts++; r.gen = 0; r.tFirst = null; S.preempted++;
+      S.queue.unshift(r);
+      S.fx.push({ kind: 'preempt', id: r.id, machine: m.id });
+    }
+  }
 
   // Player fires a capsule into a machine. Returns {ok} or {ok:false, reason}.
   function place(S, reqId, machineId) {
@@ -132,7 +162,7 @@
     let reason = null;
     if (m.mode === 'static' && m.run.length) reason = 'locked';
     else if (m.run.length + m.pending.length >= m.rails) reason = 'rails';
-    else if (usedBlocks(S, m) + ownBlocks(S, r, m) + (r.shared && !isWarm(S, m, r.family) ? Math.ceil(S.L.sharedTokens / BLOCK) : 0) > capBlocks(m)) reason = 'tank';
+    else if (usedBlocks(S, m) - evictable(S, m) + ownBlocks(S, r, m) + (r.shared && !isWarm(S, m, r.family) ? prefixBlocks(S) : 0) > capBlocks(m)) reason = 'tank';
     if (reason) {
       r.bounced++; m.bounces++; S.bounces++;
       S.fx.push({ kind: 'bounce', id: r.id, machine: m.id, reason });
@@ -143,6 +173,7 @@
     m.pending.push(r);
     if (m.mode === 'static' && m.batchOpenAt == null) m.batchOpenAt = S.t;
     S.fx.push({ kind: 'placed', id: r.id, machine: m.id });
+    relieve(S, m);
     return { ok: true };
   }
 
@@ -182,7 +213,7 @@
         const r = m.pending.shift();
         const warm = r.shared && isWarm(S, m, r.family);
         prefillTok += (warm ? r.own : r.prompt);
-        if (r.shared) m.warm[r.family] = S.t;
+        if (r.shared) { m.warm[r.family] = S.t; S.prefixQueries++; if (warm) S.prefixHits++; }
         r.phase = 'run'; r.cold = r.shared && !warm; m.run.push(r); admitted++;
         S.fx.push({ kind: 'admit', id: r.id, machine: m.id, cold: r.cold, prefill: (warm ? r.own : r.prompt) / T.prefill });
       }
@@ -205,13 +236,7 @@
     }
     m.tok += n; S.goodput += n;
     S.fx.push({ kind: 'tokens', machine: m.id, n, dt });
-    // KV pressure: preempt the newest sequence back to the lane when blocks run out.
-    while (usedBlocks(S, m) > capBlocks(m) && m.run.length > 1) {
-      const r = m.run.pop();
-      r.phase = 'lane'; r.machine = null; r.preempts++; r.gen = 0; r.tFirst = null; S.preempted++;
-      S.queue.unshift(r);
-      S.fx.push({ kind: 'preempt', id: r.id, machine: m.id });
-    }
+    relieve(S, m);
     m.last = last;
   }
 
@@ -225,7 +250,7 @@
     const mult = ok ? Math.min(3, 1 + 0.25 * Math.floor(S.combo / 5)) : 0.5;
     const coins = r.out * COIN_PER_TOKEN * mult;
     S.coins += coins; S.score += Math.round(r.out * mult * (ok ? 1 : 0.5));
-    S.recent.push({ t: S.t, ok });
+    S.recent.push({ t: S.t, ok, ttft, tpot });
     S.fx.push({ kind: 'done', id: r.id, machine: m.id, ok, coins, mult, ttft, tpot, family: r.family });
   }
 
@@ -241,6 +266,7 @@
       if (S.t >= e.at && S.t < e.at + e.dur) S.rush = e;
     }
     S.rate = L.rate(S.t) * (S.rush ? S.rush.mult : 1);
+    for (const m of S.machines) S.usd += GPU[m.type].usd * d / 3600;
     while (S.nextArr <= S.t) { spawn(S); S.nextArr += expo(S.rate); }
     for (let i = S.queue.length - 1; i >= 0; i--) {
       const r = S.queue[i];
@@ -296,6 +322,14 @@
     return (m.mode === 'static' ? 0.55 : 1) / per;
   }
 
+  // $ per 1M generated tokens at the current rate: usd/h ÷ (tok/s × 3600 / 1e6). Same formula as the
+  // cluster evidence; honest even when it is unflattering (an idle GPU costs infinity per token).
+  function usdPerMTok(S) {
+    const usdH = S.machines.reduce((a, m) => a + GPU[m.type].usd, 0);
+    const tokS = S.machines.reduce((a, m) => a + m.tokRate, 0);
+    return tokS > 0 ? usdH / (tokS * 3600 / 1e6) : Infinity;
+  }
+
   // The state schema shared with replay and the live bridge (PLAN.md).
   function snapshot(S) {
     return {
@@ -305,12 +339,13 @@
         running: m.run.length, waiting: m.pending.length,
         kv_used_pct: usedBlocks(S, m) / capBlocks(m), kv_blocks_total: capBlocks(m),
         step_ms: m.stepDur * 1000, gen_tok_s: m.tokRate, usd_per_h: GPU[m.type].usd,
+        prefix_cached_families: Object.keys(m.warm).length, preemptions: S.preempted,
       })),
       requests: S.queue.map(r => ({ id: r.id, phase: 'queued', prompt_tokens: r.prompt, gen_tokens: 0, t0: r.t0 }))
         .concat(S.machines.flatMap(m => m.run.map(r => ({ id: r.id, phase: r.tFirst === null ? 'prefill' : 'decode', replica: m.id, prompt_tokens: r.prompt, gen_tokens: r.gen, t0: r.t0, t_first: r.tFirst })))),
     };
   }
 
-  return { GPU, LEVELS, BLOCK, FAMILY_NAMES, PREFIX_TTL, BATCH_WINDOW, create, step, place, shed, setRails, setMode,
-           capacity, stars, sloPct, snapshot, usedBlocks, capBlocks, isWarm };
+  return { GPU, LEVELS, BLOCK, FAMILY_NAMES, BATCH_WINDOW, COIN_PER_TOKEN, create, step, place, shed, setRails, setMode,
+           capacity, stars, sloPct, snapshot, usedBlocks, capBlocks, isWarm, evictable, usdPerMTok };
 });
