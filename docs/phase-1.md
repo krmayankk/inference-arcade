@@ -31,8 +31,9 @@ Play: https://krmayankk.github.io/inference-arcade/game/ · Demo mode (a bot pla
   Phase 1 measurement: 28.8 tok/s single stream). Prefill 5,000 tok/s (estimate for a 7B FP8
   model on an L4). KV = 210k tokens ≈ 13k blocks of 16.
 - Level 3's shared prompts are 16k tokens: a cold read stalls the wheel for ~3.2 s, which is
-  longer than the 2.5 s TTFT limit, so "cold = late, warm = on time" is a crisp rule. Prefix
-  cache entries expire 25 s after last use.
+  longer than the 2.5 s TTFT limit, so "cold = late, warm = on time" is a crisp rule. (Phase 1
+  expired prefixes on a 25 s timer; PR A replaced that with LRU eviction and prefix churn, see
+  `docs/phase-2.md`.)
 
 ## Bot results (`node sim/arcade-bots.js 3`)
 

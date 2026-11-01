@@ -49,13 +49,13 @@ ingress ─▶ queue  ●●●●●          ┌──────── MACHI
 
 | Piece | What it is | Why it is drawn that way |
 |---|---|---|
-| **Capsule** | one request; colour = prompt family (shared prefix), ribbon = prompt length, glow = VIP (tight SLO), ring = patience | the player must *see* length and family to route well |
+| **Capsule** | one request = one sequence (vLLM: one entry in `num_requests_running` once seated); colour = prompt family (shared prefix), ribbon = prompt length, ring = patience (client timeout) | the player must *see* length and family to route well |
 | **Queue** | waiting requests; rings tick down; expired capsules explode | queueing = the first SLO to break |
 | **Reader** | prefill; pulls the ribbon through before the first token; long ribbons stall the wheel | prefill is compute-bound and blocks decode steps |
 | **Weights wheel** | one turn = one decode step; turn time ≈ 35 ms on an L4 regardless of load | decode is memory-bound: all 8 GB of weights stream once per step |
 | **Rails** | batch slots (`max_num_seqs`); every occupied rail gets one token per turn; each occupied rail adds a thin sliver to the turn | batching is nearly free until the slivers add up (TPOT) |
 | **KV tank** | paged bricks (16 tokens each) that grow as sequences lengthen; full tank pops the newest sequence back to the queue | KV cache caps concurrency; preemption is visible |
-| **Gold bricks** | shared prefix blocks | prefix caching saves both prefill and memory |
+| **Gold bricks** | shared prefix blocks; fade and vanish when the tank is squeezed (LRU eviction, not a timer) | prefix caching saves both prefill and memory; eviction is why routing must stay sticky |
 | **Draft wheel** | small fast wheel stamping ghost tokens that the big wheel verifies (solid or shatter) | speculative decoding |
 | **Crane** | lowers a new machine; its wheel fills with weights | cold start (image pull + weight load) |
 | **Sparks / short-out** | a machine fails and ejects its capsules | node/pod failure, requests re-queued |
@@ -66,13 +66,18 @@ Two vocabularies, one world: a label toggle (X) switches plain words ↔ enginee
 
 ### The verbs (what makes it a game)
 
-The player pilots a **dispatcher ship** (mouse / touch / WASD) in the gap between the ingress
-and the machines.
+The player runs the **dispatcher cannon** on the cliff at the end of the request lane (mouse /
+touch to aim, W/S to slide along the cliff, Space to shoot). *Revised after the first playtest:
+catch-then-click was confusing; aim-and-shoot is the verb.*
 
-- **Catch & fire.** Tractor-beam a capsule from the ingress stream and fire it into a rail.
-  Aim matters: same colour into the same machine → gold bricks and a fast read; a long
-  ribbon into a nearly full tank → bounce; a VIP into a dragging wheel → SLO miss.
-  This *is* the scheduler/router, played by hand.
+- **Aim & shoot.** The most urgent capsule loads itself; point at a rail (a track on a machine)
+  and shoot. Click another capsule in the lane to load it instead. Aim matters: same colour into
+  the same machine → gold bricks and a fast read; a long ribbon into a nearly full tank → bounce;
+  a full or locked track bounces the shot. This *is* the scheduler/router, played by hand.
+  With a fleet, the cannon slides along the cliff to reach machines: navigation is the act of
+  finding an empty GPU for a new sequence.
+- **Catch.** Preempted or ejected requests fly back out of a machine; click one in flight to
+  re-route it (recompute preemption, requeue on pod failure).
 - **Zap.** A laser with three honest uses: cancel an expired capsule to free the queue
   (request cancellation), chop a giant ribbon into chunks so it can be read between turns
   (chunked prefill), and restart a shorted machine (pod restart).
@@ -96,15 +101,20 @@ and the machines.
 
 | # | Level | You learn by doing | Real concept |
 |---|---|---|---|
-| 1 | First shift | fire capsules into rails; more rails barely slow the wheel | batching; decode is memory-bound |
-| 2 | Keep the table moving | rails stay dark until the whole batch finishes; flip the lever | static vs continuous batching |
-| 3 | The sweet spot | too many rails → TPOT ring turns red for everyone | TPOT vs throughput; batch cap set by SLO |
-| 4 | Tank full | long ribbons overflow the tank; FP8 and gold bricks | KV cache, PagedAttention, FP8 KV, prefix caching |
-| 5 | The giant | a boss ribbon stalls the wheel until you chop it | chunked prefill |
-| 6 | The apprentice | VIPs want 30 ms bites; the big wheel can't; the draft wheel can | speculative decoding |
-| 7 | Rush hour | the crane is slow; open machines before the rush; rent bites | cold starts, scale-out, cost per 1M tokens |
-| 8 | Two machines | route by colour and tank room; buy the auto-dispatcher | load balancing, prefix-aware routing |
-| 9 | The big day | two rushes, a giant, a fire, an autoscaler to tune | N+1, predictive vs reactive scaling |
+| 1 | First shift ✓ | shoot capsules onto rails; more rails barely slow the wheel | batching; decode is memory-bound |
+| 2 | Batch lock ✓ | tracks stay locked until the whole batch finishes; flip the lever | static vs continuous batching |
+| 3 | Two machines ✓ | route by colour under a rush; cold reads stall the wheel | prefix-aware routing, prefill cost |
+| 4 | Tank pressure | long ribbons fill the tank; a full tank pops a request off its track; catch it | KV cache paging, preemption (recompute) |
+| 5 | Cold bricks | gold bricks fade under pressure; sticky routing keeps them warm | LRU prefix-cache eviction |
+| 6 | Conversations | delivered capsules come back longer, same colour; chains build combos | multi-turn chat, prefix reuse over time |
+| 7 | The giant | a boss ribbon stalls every track until you chop it | chunked prefill |
+| 8 | Fleet | 3–4 machines; the cannon slides the cliff; buy a machine, wait for it to boot, pay rent | scale-out, cold start (image pull + weight load), $/GPU-hour |
+| 9 | Spot pull | a machine goes dark with a countdown and ejects everything; a rollout restarts one at a time | spot interruption, pod failure, rolling restart |
+| 10 | The apprentice (stretch) | a scout wheel stamps 2–3 tokens per turn when accepted | speculative decoding |
+| ∞ | Endless | traffic climbs; goodput and the bill both count; buy the autoscaler | autoscaling against an SLO and a budget |
+
+Left out on purpose: switching models mid-game (real, but it would change every number at once;
+a rollout is kept only as the restart event in level 9).
 
 ---
 
@@ -202,12 +212,21 @@ Build the smallest version that answers "is catch-and-fire fun?"
   say what the wheel does; (c) we can describe the core verb in one sentence. If (b) fails,
   we change the verb, not the world.
 
-### Phase 2 — Full arcade (2–3 sessions)
+### Phase 2 — Full arcade, one PR per enhancement
 
-- Levels 4–9, giant-prompt boss (chop = chunked prefill), draft wheel, crane, fire.
-- Levers unlock per level; buyable auto-dispatcher and autoscaler.
-- Label toggle (plain ↔ engineering) with a per-piece "why" card.
-- Sound (off by default), high-score table, stars, level select.
+Phase 1 merged 2026-10-31 (PR #1). From here every enhancement is its own PR, bot-gated (the naive
+bot loses, the intended bot wins) and screenshot-checked, in this order:
+
+| PR | Enhancement | Honesty rule it enforces |
+|---|---|---|
+| A | **Honest pieces.** Capsule = request = one sequence, said on screen. X-ray becomes a live mapping panel: every piece shows its vLLM/DCGM metric name and current value. Prefix cache expiry becomes LRU eviction under tank pressure. Every number carries a measured/estimated badge. A rent meter ($/GPU-hour, the L4 price) and coins − rent in the score. | a senior inference engineer can read the X-ray panel and find nothing fake |
+| B | **Levels 4–5.** Tank pressure (preemption pops a request off its track; catch it in flight) and Cold bricks (LRU eviction). | preemption and eviction behave as vLLM's block manager does |
+| C | **Level 6 Conversations.** Delivered requests return as longer same-colour prompts; chains and combos. | multi-turn is where prefix caching pays |
+| D | **Level 7 The giant.** Chunked prefill as a lever (and zap-to-chop for the boss ribbon). | decode keeps stepping while prefill is chunked |
+| E | **Levels 8–9 Fleet and Spot pull.** 3–4 machines, cannon slides along the cliff, buy a machine (boot time, rent), machine dies with a warning and ejects its requests, rolling restart. | boot = image pull + weight load; spot gives a two-minute warning |
+| F | **Endless with the bill.** Autoscaler to buy, goodput and $ both count; sound (off by default); phone layout. | cost per 1M tokens is computed from the same numbers the cluster reports |
+| G | **Level 10 (stretch).** Speculative decoding. | acceptance rate drives the burst size |
+
 - **Done when:** every level's bot loses the naive way and wins the intended way; a
   10-minute full playthrough recording exists in `docs/`.
 
