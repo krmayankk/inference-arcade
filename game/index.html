@@ -42,6 +42,13 @@
   #stage { position: relative; flex: 1; min-height: 360px; border: 1px solid var(--line); border-radius: 14px; overflow: hidden; touch-action: none; }
   #stage canvas { display: block; }
   #paused { position: absolute; inset: 0; display: grid; place-items: center; background: rgba(12, 20, 36, .55); font-size: 28px; font-weight: 800; pointer-events: none; }
+  #ready { position: absolute; inset: 0; display: grid; place-items: center; pointer-events: none; text-align: center; }
+  #ready b { display: block; font-size: 64px; line-height: 1; color: var(--accent); text-shadow: 0 2px 18px rgba(0,0,0,.6); }
+  #ready span { display: block; font-size: 16px; font-weight: 800; color: var(--fg); background: rgba(12, 20, 36, .8); border-radius: 10px; padding: 6px 14px; margin-top: 10px; }
+  #banner { position: absolute; left: 50%; top: 14px; transform: translateX(-50%); display: flex; align-items: center; gap: 14px; background: rgba(12, 20, 36, .92); border: 1px solid var(--line); border-radius: 12px; padding: 8px 14px; font-weight: 800; z-index: 5; }
+  #banner .stars { color: var(--gold); letter-spacing: 3px; }
+  #banner small { color: var(--muted); font-weight: 600; }
+  .opt { display: flex; align-items: center; gap: 8px; color: var(--muted); font-weight: 800; font-size: 13px; }
   .bottom { display: flex; flex-wrap: wrap; gap: 6px 16px; align-items: center; }
   #levers { display: flex; flex-wrap: wrap; gap: 6px 16px; }
   .machine-lv { display: flex; align-items: center; gap: 8px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 4px 10px; }
@@ -94,7 +101,7 @@
   </div>
 </header>
 <div class="coach"><b id="coach-tag">Coach</b><span id="coach-text">Pick a level.</span></div>
-<div id="stage"><div id="paused" hidden>PAUSED</div></div>
+<div id="stage"><div id="paused" hidden>PAUSED</div><div id="ready" hidden></div><div id="banner" hidden></div></div>
 <div class="bottom">
   <div id="levers"></div>
   <span class="keys">aim with the mouse · click / Space shoot · click a capsule to load it · 1 / 2 auto-shoot to machine · Z zap · + − rails · C batch lever · P pause · X labels</span>
@@ -108,7 +115,7 @@
     <p>Every AI reply is cooked by a GPU one token at a time. You run the dispatcher cannon: shoot incoming requests onto the machines' rails before their patience runs out.</p>
     <p class="sub">The most urgent capsule loads itself. Point at a track on a machine and click to shoot. Press X any time for the engineering labels.</p>
     <div class="levels" id="levels"></div>
-    <div class="actions"><button class="btn" id="resume">Resume</button></div>
+    <div class="actions"><button class="btn" id="resume">Resume</button><label class="opt"><input type="checkbox" id="slowmo"> Slow motion (0.6×, for learning; the numbers stay real)</label></div>
   </div>
   <div class="modal" id="m-intro" hidden>
     <p class="sub" id="intro-num">Level 1</p>

@@ -13,7 +13,8 @@
   const ROWS = 7, MAX_ANGLE = 80 * Math.PI / 180, SHOT_SPEED = 1100;
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 
-  let S = null, levelIdx = 0, eng = false, paused = false;
+  let S = null, levelIdx = 0, eng = false, paused = false, readyT = 0, slow = false;
+  try { slow = localStorage.getItem('tokenworks-slow') === '1'; } catch (e) {}
   let best = {};
   try { best = JSON.parse(localStorage.getItem('tokenworks-best') || '{}'); } catch (e) {}
 
@@ -316,7 +317,7 @@
     if (best) load(best);
   }
   function fire() {
-    if (loaded == null || !S || S.over) return;
+    if (loaded == null || !S || S.over || readyT > 0) return;
     const v = vis.get(loaded); if (!v) { loaded = null; return; }
     loaded = null;
     const mz = muzzle();
@@ -465,7 +466,7 @@
       else if (f.kind === 'admit') { if (f.cold) { const g = machineGeom(f.machine); floatText(eng ? `cold prefill ${(f.prefill * 1000).toFixed(0)} ms` : 'cold read!', g.wheel.x, g.wheel.y - g.wheel.r - 16, C.cool, 12); } }
       else if (f.kind === 'warn') { floatText(`${f.event.name} in 15 s!`, G.W * 0.42, 60, C.bad, 20); }
       else if (f.kind === 'unlock') { floatText('NEW LEVER UNLOCKED', G.W * 0.42, 80, C.good, 20); renderLevers(); }
-      else if (f.kind === 'end') { endLevel(); }
+      else if (f.kind === 'end') { showBanner(); }
     }
     S.fx.length = 0;
   }
@@ -474,6 +475,16 @@
   let coachKey = '';
   function coach() {
     const L = S.L, waiting = S.queue.filter(r => r.phase === 'lane').length;
+    if (L.tutorial) {
+      const m = S.machines[0], seated = m.run.length + m.pending.length;
+      if (S.delivered + seated === 0) return ['Step 1 · shoot', 'The capsule in your cannon is one request. Point at "rail 1" on the machine and click (or press Space).'];
+      if (S.delivered === 0) return ['Step 2 · watch', 'It rides its track while the wheel turns. One turn = one token for every busy track. The sparks on the right are the reply.'];
+      if (m.rails < 4 && waiting < 2) return ['Step 3 · more rails', 'Press + under the machine (or the + key) until it has 4 rails. Watch the turn time: it barely changes.'];
+      if (m.rails < 4) return ['Step 3 · more rails', 'Capsules are piling up. Add rails with + until there are 4. Each rail is one more request served at once.'];
+      if (!eng && S.delivered < 6) return ['Step 4 · X-ray', 'Press X. Every piece turns into its real engine name, and the panel below shows the metrics. Press X again to go back.'];
+      if (loaded != null && waiting >= 2) return ['Step 5 · choose', 'You can click any capsule in the lane to load that one instead of the most urgent. Try it.'];
+      return ['Training', `${S.delivered} of 10 delivered. Right-click or Z throws a loaded capsule away (sheds it). Level 1 is this with a clock.`];
+    }
     const m0 = S.machines[0];
     const rush = S.events.find(e => e.kind === 'rush' && S.t >= e.at - 15 && S.t < e.at);
     const anyFree = S.machines.some(m => m.run.length + m.pending.length < m.rails && !(m.mode === 'static' && m.run.length));
@@ -499,14 +510,14 @@
   function renderHud() {
     if (!S) return;
     const L = S.L, G2 = L.goal;
-    $('#h-level').textContent = L.endless ? 'Endless' : `Level ${L.id} · ${L.name}`;
+    $('#h-level').textContent = L.endless ? 'Endless' : L.tutorial ? L.name + (slow ? ' · slow motion' : '') : `Level ${L.id} · ${L.name}` + (slow ? ' · slow motion' : '');
     $('#h-goal').textContent = G2.deliver != null ? `${S.delivered} / ${G2.deliver}` : `${S.delivered}`;
     $('#h-goal-l').textContent = eng ? 'completed' : 'delivered';
     const pct = Math.round(Sim.sloPct(S) * 100);
     $('#h-slo').textContent = pct + '%'; $('#h-slo').className = G2.sloMin != null && pct < G2.sloMin * 100 ? 'bad' : '';
     $('#h-slo-l').textContent = eng ? `in SLO (TTFT ≤ ${L.slo.ttft}s)` : 'on time';
-    $('#h-to').textContent = `${S.timeouts} / ${G2.maxTimeouts}`; $('#h-to').className = S.timeouts >= G2.maxTimeouts - 1 ? 'bad' : '';
-    $('#h-time').textContent = L.endless ? fmt(S.t) : fmt(Math.max(0, G2.timeLimit - S.t));
+    $('#h-to').textContent = L.tutorial ? '—' : `${S.timeouts} / ${G2.maxTimeouts}`; $('#h-to').className = !L.tutorial && S.timeouts >= G2.maxTimeouts - 1 ? 'bad' : '';
+    $('#h-time').textContent = L.endless || L.tutorial ? fmt(S.t) : fmt(Math.max(0, G2.timeLimit - S.t));
     $('#h-score').textContent = S.score.toLocaleString();
     const mult = 1 + 0.25 * Math.floor(S.combo / 5);
     $('#h-combo').textContent = mult > 1 ? `×${mult.toFixed(2)}` : '×1';
@@ -535,8 +546,13 @@
   function frame() {
     const now = performance.now(); const dt = Math.min(0.05, (now - last) / 1000); last = now;
     if (!S) return;
-    const running = !paused && !S.over && $('#overlay').hidden;
-    if (running) { let rem = dt; while (rem > 1e-6) { const d = Math.min(0.02, rem); Sim.step(S, d); rem -= d; } }
+    const running = !paused && !S.over && $('#overlay').hidden && readyT <= 0;
+    if (readyT > 0 && !paused && $('#overlay').hidden) {
+      readyT -= dt; const n = Math.ceil(readyT);
+      $('#ready').innerHTML = readyT > 0 ? `<div><b>${n}</b><span>${S.L.tutorial ? 'Capsules come from the left. Your cannon is on the red line.' : 'Shoot capsules onto the tracks before their rings run out. P pauses.'}</span></div>` : '<div><b>GO</b></div>';
+      if (readyT <= 0) setTimeout(() => { $('#ready').hidden = true; }, 500);
+    }
+    if (running) { let rem = dt * (slow ? 0.6 : 1); while (rem > 1e-6) { const d = Math.min(0.02, rem); Sim.step(S, d); rem -= d; } }
     drainFx();
     // aiming
     if (!aim.usePointer) { const sp = 1.6 * dt; if (keys.w || keys.arrowup) aim.angle -= sp; if (keys.s || keys.arrowdown) aim.angle += sp; aim.angle = clamp(aim.angle, -MAX_ANGLE, MAX_ANGLE); }
@@ -578,16 +594,18 @@
 
   // ---------- flow ----------
   function showModal(id) { $('#overlay').hidden = false; for (const m of ['m-menu', 'm-intro', 'm-end']) $('#' + m).hidden = m !== id; const f = $('#' + id).querySelector('button:not([hidden])'); f && f.focus(); }
-  function unlocked(i) { return i === 0 || Sim.LEVELS[i].endless ? (i === 0 || (best[1] || 0) > 0) : (best[Sim.LEVELS[i - 1].id] || 0) > 0 || (best[Sim.LEVELS[i].id] || 0) > 0; }
+  function unlocked(i) { const L = Sim.LEVELS[i]; return L.tutorial || i === 0 || L.endless ? (L.tutorial || i === 0 || (best[1] || 0) > 0) : (best[Sim.LEVELS[i - 1].id] || 0) > 0 || (best[L.id] || 0) > 0; }
   function renderMenu() {
-    $('#levels').innerHTML = Sim.LEVELS.map((L, i) => `<button class="btn level" data-level="${i}" ${unlocked(i) ? '' : 'disabled'}>
-      <small>${L.endless ? 'Endless' : 'Level ' + L.id}</small><span>${L.name}</span>
-      <span class="stars">${L.endless ? (best.endless ? 'best ' + best.endless.toLocaleString() : '') : '★'.repeat(best[L.id] || 0) + '☆'.repeat(3 - (best[L.id] || 0))}</span></button>`).join('');
+    const order = Sim.LEVELS.map((L, i) => i).sort((a, b) => (Sim.LEVELS[b].tutorial ? 1 : 0) - (Sim.LEVELS[a].tutorial ? 1 : 0));   // training first
+    $('#levels').innerHTML = order.map(i => { const L = Sim.LEVELS[i]; return `<button class="btn level" data-level="${i}" ${unlocked(i) ? '' : 'disabled'}>
+      <small>${L.endless ? 'Endless' : L.tutorial ? 'Start here' : 'Level ' + L.id}</small><span>${L.name}</span>
+      <span class="stars">${L.endless ? (best.endless ? 'best ' + best.endless.toLocaleString() : '') : L.tutorial ? (best.T ? 'done' : 'no clock, no timeouts') : '★'.repeat(best[L.id] || 0) + '☆'.repeat(3 - (best[L.id] || 0))}</span></button>`; }).join('');
     $('#resume').hidden = !(S && !S.over);           // a game is waiting behind the menu
+    $('#slowmo').checked = slow;
   }
   function openIntro(i) {
     levelIdx = i; const L = Sim.LEVELS[i];
-    $('#intro-num').textContent = L.endless ? 'Endless mode' : `Level ${L.id} of ${Sim.LEVELS.filter(x => !x.endless).length}`;
+    $('#intro-num').textContent = L.endless ? 'Endless mode' : L.tutorial ? 'Training' : `Level ${L.id} of ${Sim.LEVELS.filter(x => !x.endless && !x.tutorial).length}`;
     $('#intro-title').textContent = L.name; $('#intro-text').textContent = L.brief; $('#intro-goal').textContent = L.goalText;
     showModal('m-intro');
   }
@@ -598,23 +616,36 @@
     layout(); rebuildMachines(); renderLevers(); relabel();
     aim.angle = 0; aim.usePointer = false;
     $('#pause').setAttribute('aria-pressed', 'false'); $('#paused').hidden = true;
+    $('#banner').hidden = true; readyT = 3; $('#ready').hidden = false; $('#ready').innerHTML = '';
     $('#overlay').hidden = true;
   }
   function endLevel() {
     const L = S.L, n = Sim.stars(S);
     if (L.endless) { if (S.score > (best.endless || 0)) best.endless = S.score; }
+    else if (L.tutorial) best.T = 1;
     else if (S.win) best[L.id] = Math.max(best[L.id] || 0, n);
     try { localStorage.setItem('tokenworks-best', JSON.stringify(best)); } catch (e) {}
     $('#end-sub').textContent = L.endless ? `Endless · ${fmt(S.t)}` : `Level ${L.id} · ${L.name}`;
     $('#end-title').textContent = L.endless ? 'Run over' : S.win ? ['Shift done', 'Smooth operator', 'Flawless'][n - 1] : 'Shift over';
-    $('#end-stars').innerHTML = L.endless ? `<b>${S.score.toLocaleString()}</b> points` : [1, 2, 3].map(i => `<span class="${i <= n ? '' : 'off'}">★</span>`).join('');
+    $('#end-stars').innerHTML = L.endless ? `<b>${S.score.toLocaleString()}</b> points` : L.tutorial ? '' : [1, 2, 3].map(i => `<span class="${i <= n ? '' : 'off'}">★</span>`).join('');
     const cells = [['Delivered', S.delivered], ['On time', Math.round(Sim.sloPct(S) * 100) + '%'], ['Timeouts', S.timeouts], ['Best combo', S.bestCombo], ['Coins', Math.round(S.coins)], ['Score', S.score.toLocaleString()]];
     $('#end-res').innerHTML = cells.map(([a, b]) => `<div><small>${a}</small><b>${b}</b></div>`).join('');
     $('#end-why').textContent = S.win ? '' : S.why;
     $('#end-learn').textContent = L.learn;
     $('#end-learn-box').hidden = !L.learn;
-    $('#end-next').hidden = !(S.win && levelIdx < Sim.LEVELS.length - 1 && !Sim.LEVELS[levelIdx + 1].endless);
+    $('#end-next').hidden = !(S.win && !L.tutorial && levelIdx < Sim.LEVELS.length - 1 && !Sim.LEVELS[levelIdx + 1].endless && !Sim.LEVELS[levelIdx + 1].tutorial);
+    if (L.tutorial) { $('#end-next').hidden = false; $('#end-next').textContent = 'Level 1'; } else $('#end-next').textContent = 'Next level';
+    $('#banner').hidden = true;
     showModal('m-end');
+  }
+  function showBanner() {
+    const L = S.L, n = Sim.stars(S);
+    $('#banner').innerHTML = `<span>${L.endless ? 'Run over' : L.tutorial ? 'Training done' : S.win ? 'Shift done' : 'Shift over'}</span>` +
+      (L.endless || L.tutorial ? '' : `<span class="stars">${'★'.repeat(n)}${'☆'.repeat(3 - n)}</span>`) +
+      `<small>${S.delivered} delivered · ${Math.round(Sim.sloPct(S) * 100)}% on time · score ${S.score.toLocaleString()}${S.win ? '' : S.why ? ' · ' + S.why : ''}</small>` +
+      `<button class="btn big" id="results">Results</button>`;
+    $('#banner').hidden = false;
+    $('#results').focus();
   }
   function togglePause() { if (!S || S.over) return; paused = !paused; $('#pause').setAttribute('aria-pressed', String(paused)); $('#paused').hidden = !paused; }
 
@@ -624,13 +655,15 @@
     if (b.id === 'go') play();
     if (b.id === 'intro-back' || b.id === 'end-menu' || b.id === 'menu') { if (S && !S.over) { paused = true; } renderMenu(); showModal('m-menu'); }
     if (b.id === 'end-retry') openIntro(levelIdx);
-    if (b.id === 'end-next') openIntro(levelIdx + 1);
+    if (b.id === 'end-next') openIntro(S && S.L.tutorial ? 0 : levelIdx + 1);
+    if (b.id === 'results') endLevel();
     if (b.id === 'pause') togglePause();
     if (b.id === 'xray') { eng = !eng; relabel(); }
     if (b.id === 'resume') { $('#overlay').hidden = true; paused = false; $('#pause').setAttribute('aria-pressed', 'false'); $('#paused').hidden = true; }
     if ($('#overlay').hidden) b.blur();              // never leave a HUD button focused: Space must shoot, not click it
   });
 
+  $('#slowmo').addEventListener('change', e => { slow = e.target.checked; try { localStorage.setItem('tokenworks-slow', slow ? '1' : '0'); } catch (x) {} renderHud(); });
   layout(); relabel(); renderMenu(); showModal('m-menu');
   window.TW = { get S() { return S; }, app, play, openIntro, pools: { tokens, bursts, floats }, shoot: mi => { if (loaded == null) autoLoad(); if (loaded != null && aimAtMachine(mi)) { fire(); return true; } return false; } };
 })();
