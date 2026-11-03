@@ -27,13 +27,13 @@
       id: 1, name: 'First shift',
       brief: 'Capsules are requests. The most urgent one loads into your cannon: point at a track on the machine and shoot it onto a rail. ' +
              'Every turn of the wheel stamps one token onto every occupied rail. Two rails will not keep up: add rails and watch how little the wheel slows.',
-      goalText: 'Deliver 25 replies before the clock runs out. 5 timeouts and the shift is over.',
+      goalText: 'Deliver 25 replies, at least 70% on time, before the clock runs out. 5 timeouts and the shift is over.',
       learn: 'Adding rails barely slows the wheel. One turn streams the whole model once, whether 1 or 8 rails ride it. That is batching, and it is why one GPU can serve many people.',
       machines: [{ type: 'L4', rails: 2 }], railsMax: 8, levers: ['rails'],
-      patience: 6, slo: { ttft: 3 }, families: 1, shared: 0, sharedTokens: 0,
+      patience: 7, slo: { ttft: 3 }, families: 1, shared: 0, sharedTokens: 0,
       prompt: [80, 400], out: [40, 160],
-      rate: () => 0.85, events: [],
-      goal: { deliver: 25, timeLimit: 100, maxTimeouts: 5 }, stars: [0.8, 0.95],
+      rate: t => 0.35 + 0.5 * Math.min(1, t / 45), events: [],       // ramps in: time to see the screen
+      goal: { deliver: 25, timeLimit: 130, maxTimeouts: 5, sloMin: 0.7 }, stars: [0.8, 0.95],
     },
     {
       id: 2, name: 'Batch lock',
@@ -69,6 +69,17 @@
       prompt: [60, 300], out: [40, 200],
       rate: t => 0.8 + t / 45, events: [],
       goal: { timeLimit: 1e9, maxTimeouts: 8 }, stars: [0, 0],
+    },
+    {
+      id: 'T', name: 'Training shift', tutorial: true,
+      brief: 'A machine makes replies for people, one word at a time. Each capsule is a person asking a question; your cannon seats them on the machine. No clock here and no one gives up: the coach walks you through the cannon, the wheel, the seats and the X-ray.',
+      goalText: 'Deliver 10 replies at your own pace. Nothing can go wrong here.',
+      learn: 'You shot requests onto rails, added rails, and saw that the wheel barely slows. Level 1 is the same with a clock.',
+      machines: [{ type: 'L4', rails: 2 }], railsMax: 8, levers: ['rails'],
+      patience: 60, slo: { ttft: 3 }, families: 1, shared: 0, sharedTokens: 0,
+      prompt: [80, 400], out: [40, 160],
+      rate: t => 0.25, events: [],
+      goal: { deliver: 10, timeLimit: 1e9, maxTimeouts: 99 }, stars: [0, 0],
     },
   ];
 
