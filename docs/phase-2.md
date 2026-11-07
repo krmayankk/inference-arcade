@@ -35,3 +35,23 @@ so a rare scrape), colour affinity 72–82%, affinity with 12 rails 76–90%. Le
 What is still simplified, on purpose, and where it gets fixed: per-sequence step cost and prefill
 rate are estimates (Phase 6); the lane's patience is a client timeout, not a vLLM queue limit; there
 is no scheduler priority beyond arrival order (vLLM default).
+
+## PR B0 — Pacing, onboarding, the story (merged 2026-11-07)
+
+From the second playtest: "it's so fast I can hardly figure out how to play", "the pop-up blocks
+everything", "if I have to read a document to understand the mapping, the design failed".
+
+- **Training shift**, listed first and always unlocked: no clock, no timeouts, a slow trickle, and a
+  five-step coach in the story's words (shoot one person onto a seat, watch the wheel, add seats,
+  press X, pick who loads). Ends after 10 deliveries with a Level 1 button.
+- **Level 1 ramps in** (0.35 → 0.85 requests/s over 45 s), patience 7 s, 130 s clock, a 70% on-time
+  bar so the naive bot cannot scrape a win on the gentler start.
+- **3-second countdown** before every level, scene visible, one-line hint.
+- **No pop-up at the end**: the final scene stays under a banner (verdict, stars, delivered, on time,
+  score); Results opens on click.
+- **Slow motion (0.6×)** toggle, labelled as a learning aid; engine numbers unchanged.
+- **The story** is in the README (each piece in plain words with its real counterpart, and seven
+  lessons for running GPUs well) and behind "The story" on the game's menu. Outside X-ray the game
+  uses only the story's words: "turn away" (not zap), "pushed off" (not preempted), seats and people.
+
+Bots: level 1 naive 30–59% on time, loses; intended 100%, 3 stars. Level 3 unchanged from PR A.
