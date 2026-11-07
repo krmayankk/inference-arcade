@@ -50,6 +50,17 @@
   .lv b { min-width: 22px; text-align: center; font-variant-numeric: tabular-nums; }
   .lv.locked { color: var(--muted); font-size: 12px; font-weight: 800; }
   #legend { font: 11px/1.4 "JetBrains Mono", monospace; color: var(--muted); }
+  #xpanel { font: 11px/1.35 "JetBrains Mono", monospace; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 6px 10px; }
+  #xpanel table { border-collapse: collapse; width: 100%; }
+  #xpanel th { text-align: left; color: var(--muted); font-weight: 600; font-size: 10px; text-transform: uppercase; letter-spacing: .06em; padding: 2px 10px 4px 0; }
+  #xpanel td { padding: 1px 10px 1px 0; vertical-align: top; white-space: nowrap; }
+  #xpanel td.v { color: var(--fg); font-variant-numeric: tabular-nums; }
+  #xpanel td.m { color: var(--cool); }
+  #xpanel .src { font-size: 10px; border-radius: 4px; padding: 0 5px; border: 1px solid var(--line); color: var(--muted); }
+  #xpanel .src.meas { color: var(--good); border-color: var(--good); }
+  #xpanel .src.est { color: var(--gold); border-color: var(--gold); }
+  #xpanel .src.live { color: var(--accent); border-color: var(--accent); }
+  #xpanel .note { color: var(--muted); margin-top: 4px; }
   .keys { color: var(--muted); font-size: 11px; margin-left: auto; }
   .overlay { position: fixed; inset: 0; z-index: 20; display: grid; place-items: center; padding: 14px; background: rgba(6, 10, 20, .7); backdrop-filter: blur(4px); }
   .modal { width: min(620px, 100%); max-height: 100%; overflow: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 22px; display: flex; flex-direction: column; gap: 12px; }
@@ -86,6 +97,7 @@
     <div class="stat"><small>time</small><b id="h-time">1:40</b></div>
     <div class="stat"><small>score</small><b id="h-score">0</b></div>
     <div class="stat"><small>combo</small><b id="h-combo">×1</b></div>
+    <div class="stat" title="instance $/h ÷ generated tokens/s, the same formula as the cluster evidence"><small id="h-cost-l">cost / 1M tok</small><b id="h-cost">—</b></div>
   </div>
   <div class="ctl">
     <button class="btn" id="pause" aria-pressed="false">Pause</button>
@@ -100,6 +112,7 @@
   <span class="keys">aim with the mouse · click / Space shoot · click a capsule to load it · 1 / 2 auto-shoot to machine · Z zap · + − rails · C batch lever · P pause · X labels</span>
 </div>
 <div id="legend"></div>
+<div id="xpanel" hidden></div>
 <p class="foot">The L4 machine turns at the speed measured on <a href="https://github.com/krmayankk/gpu-inference" target="_blank" rel="noopener">gpu-inference</a> (Qwen2.5-Coder-7B FP8 on one NVIDIA L4: 28.8 tokens/s single-stream). Part of <a href="../">Inference Arcade</a>.</p>
 
 <div class="overlay" id="overlay">
@@ -129,11 +142,11 @@
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pixi.js/7.4.2/pixi.min.js"></script>
-<script src="sim.js?v=4"></script>
+<script src="sim.js?v=5"></script>
 <script>
   // ?bot=1 lets a bot play (demo mode); also the headless screenshot driver used by sim/headless.
   if (new URLSearchParams(location.search).has('bot')) document.write('<script src="../sim/headless/bot.js"><\/script>');
 </script>
-<script src="main.js?v=4"></script>
+<script src="main.js?v=5"></script>
 </body>
 </html>

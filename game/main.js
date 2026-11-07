@@ -166,7 +166,7 @@
     if (labels) {
       M.lblAcc = 0; M.lblInit = true;
       M.title.text = eng ? `${m.type} #${m.id}` : `Machine ${m.id + 1}`;
-      M.sub.text = eng ? `${(step * 1000).toFixed(1)} ms/step · ${m.run.length}/${m.rails} seqs · ${m.mode}` : `${(step * 1000).toFixed(0)} ms per turn · ${m.run.length} of ${m.rails} rails busy · ${m.mode === 'static' ? 'batch lock' : 'keeps moving'}`;
+      M.sub.text = eng ? `${(step * 1000).toFixed(1)} ms/step · ${m.run.length}/${m.rails} seqs · ${m.mode} · $${Sim.GPU[m.type].usd.toFixed(2)}/h` : `${(step * 1000).toFixed(0)} ms per turn · ${m.run.length} of ${m.rails} rails busy · ${m.mode === 'static' ? 'batch lock' : 'keeps moving'}`;
       const subFill = m.mode === 'static' ? '#ff6b6b' : '#8ea3c9';
       if (M.subFill !== subFill) { M.subFill = subFill; M.sub.style.fill = subFill; }
       M.railsLbl.text = eng ? `max_num_seqs = ${m.rails}  (one track per sequence)` : `${m.rails} rails · each track carries one request`;
@@ -462,6 +462,7 @@
         v.state = 'flying'; v.tween = { x0: g.x + 40, y0: g.y + g.h - 30, x1: laneX(r), y1: v.y, t: 0, dur: 0.4, then: () => { v.state = 'lane'; } };
         floatText(eng ? 'preempted (KV)' : 'POPPED OUT', g.x + 60, g.y + g.h - 40, C.bad, 13); shake(4);
       }
+      else if (f.kind === 'evict') { const g = machineGeom(f.machine); floatText(eng ? 'prefix evicted (LRU)' : 'old gold bricks cleared', g.x + g.w / 2, g.tankY - 26, C.gold, 12); }
       else if (f.kind === 'admit') { if (f.cold) { const g = machineGeom(f.machine); floatText(eng ? `cold prefill ${(f.prefill * 1000).toFixed(0)} ms` : 'cold read!', g.wheel.x, g.wheel.y - g.wheel.r - 16, C.cool, 12); } }
       else if (f.kind === 'warn') { floatText(`${f.event.name} in 15 s!`, G.W * 0.42, 60, C.bad, 20); }
       else if (f.kind === 'unlock') { floatText('NEW LEVER UNLOCKED', G.W * 0.42, 80, C.good, 20); renderLevers(); }
@@ -477,7 +478,7 @@
     const m0 = S.machines[0];
     const rush = S.events.find(e => e.kind === 'rush' && S.t >= e.at - 15 && S.t < e.at);
     const anyFree = S.machines.some(m => m.run.length + m.pending.length < m.rails && !(m.mode === 'static' && m.run.length));
-    if (S.t < 8 && S.delivered === 0 && !S.machines.some(m => m.run.length + m.pending.length)) return ['How to play', 'A capsule is loaded in your cannon. Point at a track on the machine and click (or Space) to shoot it onto a rail.'];
+    if (S.t < 8 && S.delivered === 0 && !S.machines.some(m => m.run.length + m.pending.length)) return ['How to play', 'Each capsule is one request (one person waiting for a reply). It loads into your cannon: point at a track on the machine and click (or Space) to shoot it onto a rail.'];
     if (L.id === 2 && m0.mode === 'static' && S.modeUnlocked) return ['New lever', 'Flip the batch-lock lever below. Rails will refill the moment one frees up.'];
     if (L.id === 2 && m0.mode === 'static' && S.bounces >= 1) return ['Locked out', 'The batch runs until its slowest sequence finishes. Nothing new can board: the empty tracks show a red ✕ at the gate.'];
     if (L.levers.includes('rails') && waiting >= 3 && S.machines.every(m => m.rails < L.railsMax && m.run.length + m.pending.length >= m.rails)) return ['Rails are full', `Every track is taken. Add rails with + (below, or the + key). Then watch the turn time: it barely moves.`];
@@ -511,16 +512,57 @@
     const mult = 1 + 0.25 * Math.floor(S.combo / 5);
     $('#h-combo').textContent = mult > 1 ? `×${mult.toFixed(2)}` : '×1';
     $('#h-combo').className = mult > 1 ? 'hot' : '';
+    const cpm = Sim.usdPerMTok(S);
+    $('#h-cost').textContent = isFinite(cpm) ? '$' + (cpm >= 100 ? cpm.toFixed(0) : cpm.toFixed(2)) : '—';
+    $('#h-cost').className = isFinite(cpm) && cpm > 5 ? 'bad' : '';
+    $('#h-cost-l').textContent = eng ? '$ / 1M gen tok' : 'cost / 1M tokens';
     renderCoach();
+    if (eng && (xAcc += 0.1) >= 0.5) { xAcc = 0; renderXray(); }
+  }
+  // X-ray panel: every piece on screen, the vLLM / DCGM metric it stands for, its current value in the
+  // sim, and where the number comes from. In Live mode (Phase 4) the value column is the cluster's.
+  let xAcc = 0;
+  function renderXray() {
+    const T = Sim.GPU[S.machines[0].type], ms = T.measured || {};
+    const src = k => `<span class="src ${ms[k] ? 'meas' : 'est'}">${ms[k] ? 'measured' : 'estimated'}</span>`;
+    const sim = '<span class="src">sim</span>', live = '<span class="src live">live only</span>', client = '<span class="src">client</span>';
+    const per = f => S.machines.map((m, i) => `m${i + 1} ${f(m)}`).join(' · ');
+    const recent = S.recent.filter(x => x.ttft != null), mean = a => a.length ? a.reduce((x, y) => x + y, 0) / a.length : null;
+    const ttft = mean(recent.map(x => x.ttft)), tpot = mean(recent.map(x => x.tpot));
+    const kv = m => Math.round(100 * Sim.usedBlocks(S, m) / Sim.capBlocks(m)) + '%';
+    const hit = S.prefixQueries ? Math.round(100 * S.prefixHits / S.prefixQueries) + '%' : '—';
+    const cpm = Sim.usdPerMTok(S);
+    const rows = [
+      ['capsule in the lane', 'request not yet routed (router queue)', S.queue.filter(r => r.phase === 'lane').length, client],
+      ['capsule at a gate', 'vllm:num_requests_waiting', per(m => m.pending.length), sim],
+      ['capsule on a track', 'vllm:num_requests_running (one sequence)', per(m => m.run.length), sim],
+      ['tracks (rails)', 'max_num_seqs (engine arg)', per(m => m.rails), sim],
+      ['wheel turn', 'vllm:inter_token_latency_seconds', per(m => (m.stepDur * 1000).toFixed(1) + ' ms'), src('base') + ' base ' + src('per') + ' per seq'],
+      ['tokens off the chute', 'rate(vllm:generation_tokens_total)', per(m => Math.round(m.tokRate) + ' tok/s'), sim],
+      ['reader ring', 'vllm:request_prefill_time_seconds', per(m => m.last && m.last.pre > 0.01 ? (m.last.pre * 1000).toFixed(0) + ' ms' : '0'), src('prefill')],
+      ['patience ring → first token', 'vllm:time_to_first_token_seconds (mean, last 10 s)', ttft != null ? ttft.toFixed(2) + ' s' : '—', sim],
+      ['ride speed', 'vllm:time_per_output_token_seconds (mean, last 10 s)', tpot != null ? (tpot * 1000).toFixed(1) + ' ms' : '—', sim],
+      ['tank', 'vllm:kv_cache_usage_perc', per(kv), src('kvTokens') + ' capacity'],
+      ['popped out', 'vllm:num_preemptions_total', S.preempted, sim],
+      ['gold bricks', 'vllm:prefix_cache_hits_total / queries_total', hit + ' hit rate · ' + S.evictions + ' evicted (LRU)', sim],
+      ['patience ring', 'client timeout ' + S.L.patience + ' s (not a server metric)', S.timeouts + ' timed out', client],
+      ['rent', 'instance $/h', per(m => '$' + Sim.GPU[m.type].usd.toFixed(2)) + ' · this shift $' + S.usd.toFixed(3), src('usd')],
+      ['cost / 1M tokens', '$/h ÷ (gen tok/s × 3600 / 1e6)', isFinite(cpm) ? '$' + cpm.toFixed(2) : '∞ (idle)', sim],
+      ['heat glow', 'DCGM_FI_DEV_GPU_TEMP · DCGM_FI_DEV_POWER_USAGE · GPU_UTIL', '—', live],
+    ];
+    $('#xpanel').innerHTML = `<table><tr><th>piece</th><th>metric</th><th>value</th><th>source</th></tr>` +
+      rows.map(r => `<tr><td>${r[0]}</td><td class="m">${r[1]}</td><td class="v">${r[2]}</td><td>${r[3]}</td></tr>`).join('') +
+      `</table><div class="note">measured = gpu-inference Phase 1 on one L4 (28.8 tok/s single stream → 34.7 ms base step; AWS price) · estimated = ratio estimates until the Phase 6 calibration sweep · live only = needs the cluster bridge (Phase 4)</div>`;
   }
   const fmt = s => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
   function relabel() {
     $('#xray').setAttribute('aria-pressed', String(eng));
     document.documentElement.dataset.eng = eng ? 'on' : 'off';
     renderLevers(); coachKey = ''; renderHud();
+    $('#xpanel').hidden = !eng; if (eng && S) renderXray();
     $('#legend').innerHTML = eng
-      ? 'wheel = decode step (one forward pass) · track = one sequence slot, max_num_seqs of them · tank = KV cache (16-token blocks) · ribbon = prompt tokens · gold = cached prefix · blue ring = prefill'
-      : 'wheel = one turn stamps a token on every busy track · track = a rail, one request rides it while its reply is written · tank = memory for everything cooking · ribbon = how long the request is · gold = already read';
+      ? 'capsule = one request = one sequence · wheel = decode step (one forward pass) · track = one sequence slot, max_num_seqs of them · tank = KV cache (16-token blocks) · ribbon = prompt tokens · gold = cached prefix (LRU) · blue ring = prefill'
+      : 'capsule = one request (one person waiting) · wheel = one turn stamps a token on every busy track · track = a rail, one request rides it while its reply is written · tank = memory for everything cooking · ribbon = how long the request is · gold = already read';
   }
 
   // ---------- frame ----------
